@@ -8,13 +8,14 @@ sys.path.append(".")
 # 匯入系統與工具
 from app import AutoAgentSystem
 from tools.browsing.impl import Browsing  # ✅ 加入這行，導入你的工具
-
+from tools.pubmed import PubMedSearch     # ✅ PubMed 工具
+from tools.semantic import SemanticScholarSearch  # ✅ Semantic Scholar
 async def main():
     app = AutoAgentSystem(
         tool_configs={
-            Browsing: {
-                "always_include": True  # ✅ 所有 agent 都可以用此工具
-            }
+            Browsing: {"always_include": True  },     # ✅ 所有 agent 都可以用此工具
+            PubMedSearch: {"always_include": True},
+            SemanticScholarSearch: {"always_include": True},
         },
         root_has_tools=True  # ✅ 讓 root agent 也可以用工具
     )

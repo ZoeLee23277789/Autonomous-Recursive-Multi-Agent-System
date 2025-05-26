@@ -3,8 +3,4 @@ digraph {
 	root [label=root]
 	alpha [label=alpha]
 	root -> alpha
-	beta [label=beta]
-	root -> beta
-	gamma [label=gamma]
-	root -> gamma
 }

@@ -42,10 +42,10 @@ def default_engine():
         )
 
     return OpenAIEngine(
-        model="gpt-4o", # gpt-3.5-turbo
+        model="gpt-4o",         # gpt-3.5-turbo
         temperature=0.7,        # 控制隨機性：越低越穩定
         top_p=0.9,              # 控制 nucleus sampling
-        max_tokens=1028       # 每次回應最多 token
+        max_tokens=1028         # 每次回應最多 token
     )
 
 
