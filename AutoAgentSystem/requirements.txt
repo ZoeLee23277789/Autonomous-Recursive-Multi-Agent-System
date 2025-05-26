@@ -1,0 +1,10 @@
+duckduckgo-search
+readability-lxml
+newspaper3k
+beautifulsoup4
+lxml
+trafilatura
+httpx
+playwright
+pymupdf
+pymupdf4llm
