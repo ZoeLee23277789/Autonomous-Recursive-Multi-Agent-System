@@ -1,0 +1,14 @@
+[
+  {
+    "id": 7389,
+    "claim": "Algebraic logic has five Logical system and Lindenbaum–Tarski algebra which includes Physics algebra and Nodal algebra (provide models of propositional modal logics).",
+    "ground_truth": "REFUTES",
+    "agent_answer": "NOT ENOUGH INFO"
+  },
+  {
+    "id": 13969,
+    "claim": "Aramais Yepiskoposyan played for FC Ararat Yerevan, an Armenian football club based in Yerevan during 1986 to 1991.",
+    "ground_truth": "SUPPORTS",
+    "agent_answer": "NOT ENOUGH INFO"
+  }
+]

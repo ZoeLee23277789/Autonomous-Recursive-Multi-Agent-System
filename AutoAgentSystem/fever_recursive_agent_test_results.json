@@ -1,0 +1,32 @@
+[
+  {
+    "claim": "Colin Kaepernick became a starting quarterback during the 49ers 63rd season in the National Football League.",
+    "prediction": "NOT ENOUGH INFO",
+    "ground_truth": "NOT ENOUGH INFO",
+    "correct": 1
+  },
+  {
+    "claim": "Tilda Swinton is a vegan.",
+    "prediction": "NOT ENOUGH INFO",
+    "ground_truth": "NOT ENOUGH INFO",
+    "correct": 1
+  },
+  {
+    "claim": "Fox 2000 Pictures released the film Soul Food.",
+    "prediction": "SUPPORTS",
+    "ground_truth": "SUPPORTS",
+    "correct": 1
+  },
+  {
+    "claim": "Anne Rice was born in New Jersey.",
+    "prediction": "REFUTES",
+    "ground_truth": "NOT ENOUGH INFO",
+    "correct": 0
+  },
+  {
+    "claim": "Telemundo is a English-language television network.",
+    "prediction": "REFUTES",
+    "ground_truth": "REFUTES",
+    "correct": 1
+  }
+]

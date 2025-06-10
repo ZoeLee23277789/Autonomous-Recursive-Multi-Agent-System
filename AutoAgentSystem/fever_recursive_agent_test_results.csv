@@ -1,0 +1,6 @@
+﻿claim,prediction,ground_truth,correct
+Colin Kaepernick became a starting quarterback during the 49ers 63rd season in the National Football League.,NOT ENOUGH INFO,NOT ENOUGH INFO,1
+Tilda Swinton is a vegan.,NOT ENOUGH INFO,NOT ENOUGH INFO,1
+Fox 2000 Pictures released the film Soul Food.,SUPPORTS,SUPPORTS,1
+Anne Rice was born in New Jersey.,REFUTES,NOT ENOUGH INFO,0
+Telemundo is a English-language television network.,REFUTES,REFUTES,1
