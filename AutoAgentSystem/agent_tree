@@ -1,18 +1,4 @@
 // Recursive Agent Tree
 digraph {
 	root [label=root]
-	alpha [label=alpha]
-	root -> alpha
-	beta [label=beta]
-	root -> beta
-	gamma [label=gamma]
-	root -> gamma
-	delta [label=delta]
-	root -> delta
-	alpha [label=alpha]
-	delta -> alpha
-	beta [label=beta]
-	delta -> beta
-	gamma [label=gamma]
-	delta -> gamma
 }

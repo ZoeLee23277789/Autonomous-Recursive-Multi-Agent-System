@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "redel"
-dynamic = ["version"]
+version = "0.1.0"
 authors = [
     { name = "Andrew Zhu", email = "andrew@zhu.codes" },
 ]
@@ -54,7 +54,7 @@ web = [
 "Bug Tracker" = "https://github.com/zhudotexe/redel/issues"
 
 [tool.hatch]
-version.path = "redel/_version.py"
+
 
 [tool.hatch.build.targets.sdist]
 exclude = [

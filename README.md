@@ -1,94 +1,120 @@
+
 # Autonomous Recursive Multi-Agent System
 
-## 🧠 專案簡介
-這是一個能夠「自主決策 + 自動生成協作團隊 + 必要時請示人類」的 AI Agent 系統。
+##  Project Overview
 
-透過這個系統，你只需要給出一個最終任務，主 Agent 就會自動：
+This project implements an **Autonomous Recursive Multi-Agent System** capable of:
 
-- 🔍 推理出完成這個任務所需要的各種子角色（專家 Agent）
-- ⚙️ 動態生成這些專家角色
-- 🤝 安排他們互相溝通與協作
-- 🧩 如果有問題，主 Agent 會自己判斷是否要請示人類
-- ✅ 最終主動將完整解決方案回報給你
+- autonomous decision making  
+- dynamically generating specialized agents  
+- coordinating collaboration among agents  
+- requesting human input only when necessary  
+
+Given a single high-level task, the **main agent automatically**:
+
+-  analyzes the task and determines what types of expert agents are required  
+-  dynamically creates those specialized agents  
+-  coordinates communication and collaboration between agents  
+-  decides when human input is necessary (Human-in-the-loop)  
+-  aggregates all results and returns a final solution  
+
+The system supports **recursive task delegation**, meaning that sub-agents can further create their own sub-agents when necessary.
 
 ---
 
-## 🔧 安裝說明
+# 🔧 Installation
+
+It is recommended to use a virtual environment.
 
 ```bash
-# 建議使用虛擬環境
 conda create -n multiagent_env python=3.10
 conda activate multiagent_env
 
-# 安裝依賴
 pip install -r requirements.txt
-```
+````
 
-✅ 請在根目錄建立 `.env` 檔案，內容如下：
+Create a `.env` file in the project root:
 
 ```
-OPENAI_API_KEY=你的OpenAI API Key
+OPENAI_API_KEY=your_openai_api_key
 ```
 
 ---
 
-## 🚀 使用方式
+# 🚀 Running the System
 
-執行主程式：
+Run the main interactive agent system:
 
 ```bash
-python main.py
+python __main__.py
 ```
 
-輸入任務需求，例如：
+Example prompt:
+
 ```
-幫我寫一篇報導，關於LLM
+Write a report about large language models.
 ```
 
-程式會：
-1. 呼叫 LLM 推理出你需要的專家角色
-2. 自動建立這些專家並執行子任務
-3. 專家會互相討論並完成任務
-4. 如果遇到無法決策的情況，Commander 會詢問你（Human-in-the-loop）
-5. 回傳最終報告
+The system will automatically:
+
+1. Use an LLM to infer required expert roles
+2. Dynamically generate those expert agents
+3. Assign subtasks to each agent
+4. Allow agents to collaborate and share information
+5. Request human input if necessary
+6. Produce a final integrated result
 
 ---
 
-## 📂 專案結構
+# 🧪 Running FEVER Benchmark
 
-```
-├── main.py                   # 程式進入點
-├── commander_agent.py        # 主AI Agent，負責指揮任務與召喚專家
-├── expert_factory.py         # 專家產生器，根據角色名稱建立對應的專家 Agent
-├── communication.py          # 控制 Agent 間溝通、請示人類等互動流程
-├── memory.py                 # 任務過程中所有筆記與成果彙整
-├── requirements.txt          # 所需套件列表
-├── .env                      # 儲存 OpenAI API KEY
+To evaluate the system on the **FEVER fact verification dataset**, run:
+
+```bash
+python test_fever.py
 ```
 
----
+This script will:
 
-## ✅ 本系統支援功能
-
-| 功能 | 說明 |
-|------|------|
-| 🧠 任務分析 | 主 Agent 可自動分析任務並判斷所需專家 |
-| ⚙️ 動態生成 Agent | 根據 LLM 推理，隨時建立新角色 |
-| 🤝 Agent 協作 | 專家間可互相參考彼此資訊並整合成果 |
-| 🧍 人類決策介入 | 僅在遇到需要你意見時，系統會主動詢問你 |
-| 📋 結果回報 | 所有討論與最終成果由主 Agent 整理並呈現 |
+* load FEVER claims
+* retrieve relevant Wikipedia evidence
+* use the multi-agent system to reason about the claim
+* output predictions for evaluation
 
 ---
 
-## 📌 適合應用情境
+# 📂 Project Structure
 
-- 自動化報告撰寫
-- 求職資料整理
-- 市場分析與對比
-- 多步驟任務規劃
-- AI 系統模擬與協作測試
+```
+├── main.py                   # Program entry point
+├── commander_agent.py        # Main controller agent that manages tasks
+├── expert_factory.py         # Dynamically creates expert agents
+├── communication.py          # Handles communication between agents and humans
+├── memory.py                 # Stores intermediate notes and task results
+├── requirements.txt          # Python dependencies
+├── .env                      # Stores the OpenAI API key
+```
 
 ---
 
-## 🧾 License
-MIT License
+# ✅ System Features
+
+| Feature                   | Description                                                   |
+| ------------------------- | ------------------------------------------------------------- |
+| 🧠 Task Analysis          | The main agent analyzes tasks and determines required experts |
+| ⚙️ Dynamic Agent Creation | Expert agents are generated dynamically using LLM reasoning   |
+| 🤝 Agent Collaboration    | Agents communicate and integrate their results                |
+| 🧍 Human-in-the-loop      | Human input is requested only when necessary                  |
+| 📋 Result Aggregation     | The main agent summarizes all discussions into a final output |
+
+---
+
+# 📌 Potential Applications
+
+* automated report generation
+* research assistance
+* job information aggregation
+* market analysis
+* multi-step task planning
+* evaluation of collaborative AI systems
+
