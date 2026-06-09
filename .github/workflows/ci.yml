@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Compile source
+        run: python -m compileall -q AutoAgentSystem
+
+      - name: Smoke test MCTS planner
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "AutoAgentSystem")
+          from mcts_planner import MCTSTaskPlanner
+
+          planner = MCTSTaskPlanner(iterations=16)
+          complex_plan = planner.plan("Design an enterprise AI Agent system with architecture, modules, risks, deployment, and roadmap.")
+          simple_plan = planner.plan("Hello")
+
+          assert complex_plan.topology in {"hierarchical_tree", "pipeline", "flat_fanout"}
+          assert simple_plan.topology == "direct"
+          print(complex_plan.short_summary())
+          print(simple_plan.short_summary())
+          PY
+
+      - name: Smoke test app import
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "AutoAgentSystem")
+          from app import AutoAgentSystem
+
+          app = AutoAgentSystem()
+          prompt = app.prepare_task_prompt("Design an enterprise AI Agent system with architecture and roadmap.")
+          assert app.last_mcts_plan is not None
+          assert "[MCTS task-planning brief]" in prompt
+          print(app.last_mcts_plan.short_summary())
+          PY
