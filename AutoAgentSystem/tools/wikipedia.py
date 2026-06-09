@@ -1,11 +1,11 @@
 # tools/wikipedia.py
 from langchain_community.utilities import WikipediaAPIWrapper
-from kani import ai_function
+from runtime import ai_function
 from tools import ToolBase
 
 class WikipediaSearch(ToolBase):
-    def __init__(self, app, kani):
-        super().__init__(app, kani)
+    def __init__(self, app, agent):
+        super().__init__(app, agent)
         self.wrapper = WikipediaAPIWrapper(top_k_results=3, doc_content_chars_max=1000)
 
     @ai_function()

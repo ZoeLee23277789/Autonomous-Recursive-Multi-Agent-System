@@ -2,7 +2,7 @@ import datetime
 import smtplib
 from email.message import EmailMessage
 
-from kani import ai_function
+from runtime import ai_function
 
 from ._base import ToolBase
 

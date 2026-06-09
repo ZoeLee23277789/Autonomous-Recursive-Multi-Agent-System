@@ -1,6 +1,6 @@
 # tools/pubmed.py
 from Bio import Entrez
-from kani import ai_function
+from runtime import ai_function
 from tools import ToolBase
 
 class PubMedSearch(ToolBase):

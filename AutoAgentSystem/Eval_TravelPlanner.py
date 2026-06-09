@@ -5,7 +5,7 @@ import json
 import os
 from dotenv import load_dotenv
 from datasets import load_dataset
-from kani import ChatRole
+from runtime import ChatRole
 
 load_dotenv()
 
@@ -19,7 +19,7 @@ async def chat_once(agent_system, user_input: str) -> str:
     await agent_system.ensure_init()
 
     response_text = ""
-    async for stream_manager in agent_system.root_kani.full_round_stream(user_input):
+    async for stream_manager in agent_system.root_agent.full_round_stream(user_input):
         message = await stream_manager.message()
         if message.role == ChatRole.ASSISTANT:
             response_text += message.content

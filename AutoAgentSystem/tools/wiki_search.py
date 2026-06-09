@@ -1,12 +1,12 @@
 import json
 from pathlib import Path
-from kani import ai_function
+from runtime import ai_function
 from tools import ToolBase
 
 class WikipediaSearch(ToolBase):
-    def __init__(self, app, kani, wiki_dir, prebuilt_index=None):
+    def __init__(self, app, agent, wiki_dir, prebuilt_index=None):
         self.app = app
-        self.kani = kani
+        self.agent = agent
         self.wiki_dir = wiki_dir
         self.page_index = prebuilt_index or {}
         self.index_built = bool(prebuilt_index)
@@ -44,4 +44,3 @@ class WikipediaSearch(ToolBase):
                     except IndexError:
                         return f"Sentence ID {sentence_id} not found in {page_id}."
         return f"Page {page_id} not found in {file_path}."
-

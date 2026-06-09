@@ -1,45 +1,44 @@
 from contextlib import contextmanager
 from typing import AsyncIterable, TYPE_CHECKING
 
-from kani import ChatMessage, ChatRole, Kani
-from kani.engines.base import BaseCompletion
-from kani.engines.openai import OpenAIEngine
-from kani.streaming import StreamManager
+from runtime import ChatAgentRuntime, ChatMessage, ChatRole
+from runtime import BaseCompletion
+from runtime import OpenAIEngine
+from runtime import StreamManager
 import events
 
-from state import KaniState, RunState
-from utils import create_kani_id
+from state import AgentState, RunState
+from utils import create_agent_id
 
 
 if TYPE_CHECKING:
     from .app import AutoAgentSystem
 
 
-class BaseKani(Kani):
+class BaseAgent(ChatAgentRuntime):
     """
-    Base class for all kani in the application, regardless of recursive delegation.
+    Base class for all agents in the application, regardless of recursive delegation.
 
-    Extends :class:`kani.Kani`. See the Kani documentation for more details on the internal chat state and LLM
-    interface.
+    Extends the underlying chat-agent runtime with app state, events, and delegation bookkeeping.
     """
 
     def __init__(
         self,
         *args,
         app: "AutoAgentSystem",
-        parent: "BaseKani" = None,
+        parent: "BaseAgent" = None,
         id: str = None,
         name: str = None,
         dispatch_creation: bool = True,
         **kwargs,
     ):
         """
-        :param app: The :class:`.AutoAgentSystem` instance this kani is a part of.
-        :param parent: The parent of this kani, or ``None`` if this is the root of a system.
-        :param id: The internal ID of this kani. If not passed, generates a UUID.
-        :param name: The human-readable name of this kani. If not passed, uses the ID.
-        :param dispatch_creation: Whether to dispatch a :class:`.events.KaniSpawn` event automatically. If false, the
-            caller is responsible for calling ``app.on_kani_creation()`` to dispatch the event.
+        :param app: The :class:`.AutoAgentSystem` instance this agent is a part of.
+        :param parent: The parent of this agent, or ``None`` if this is the root of a system.
+        :param id: The internal ID of this agent. If not passed, generates a UUID.
+        :param name: The human-readable name of this agent. If not passed, uses the ID.
+        :param dispatch_creation: Whether to dispatch a :class:`.events.AgentSpawn` event automatically. If false, the
+            caller is responsible for calling ``app.on_agent_creation()`` to dispatch the event.
         """
         super().__init__(*args, **kwargs)
         self.state = RunState.STOPPED
@@ -52,11 +51,11 @@ class BaseKani(Kani):
         self.parent = parent
         self.children = {}
         # app management
-        self.id = create_kani_id() if id is None else id
+        self.id = create_agent_id() if id is None else id
         self.name = self.id if name is None else name
         self.app = app
         if dispatch_creation:
-            app.on_kani_creation(self)
+            app.on_agent_creation(self)
 
     # ==== overrides ====
     async def get_model_completion(self, include_functions: bool = True, **kwargs) -> BaseCompletion:
@@ -113,7 +112,7 @@ class BaseKani(Kani):
 
     async def add_to_history(self, message: ChatMessage):
         await super().add_to_history(message)
-        self.app.dispatch(events.KaniMessage(id=self.id, msg=message))
+        self.app.dispatch(events.AgentMessage(id=self.id, msg=message))
         if self.parent is None:
             self.app.dispatch(events.RootMessage(msg=message))
 
@@ -134,17 +133,17 @@ class BaseKani(Kani):
     # ==== utils ====
     @property
     def last_user_message(self) -> ChatMessage | None:
-        """The most recent USER message in this kani's chat history, if one exists."""
+        """The most recent USER message in this agent's chat history, if one exists."""
         return next((m for m in reversed(self.chat_history) if m.role == ChatRole.USER), None)
 
     @property
     def last_assistant_message(self) -> ChatMessage | None:
-        """The most recent ASSISTANT message in this kani's chat history, if one exists."""
+        """The most recent ASSISTANT message in this agent's chat history, if one exists."""
         return next((m for m in reversed(self.chat_history) if m.role == ChatRole.ASSISTANT), None)
 
-    def get_save_state(self) -> KaniState:
+    def get_save_state(self) -> AgentState:
         """Get a Pydantic state suitable for saving/loading."""
-        return KaniState.from_kani(self)
+        return AgentState.from_agent(self)
 
     # --- state utils ---
     def set_run_state(self, state: RunState):
@@ -153,7 +152,7 @@ class BaseKani(Kani):
         if self.state == state:
             return
         self.state = state
-        self.app.dispatch(events.KaniStateChange(id=self.id, state=self.state))
+        self.app.dispatch(events.AgentStateChange(id=self.id, state=self.state))
 
     @contextmanager
     def run_state(self, state: RunState):
@@ -166,7 +165,7 @@ class BaseKani(Kani):
             self.set_run_state(self._old_state_stack.pop())
 
     async def cleanup(self):
-        """This kani may run again but is done for now; clean up any ephemeral resources but save its state."""
+        """This agent may run again but is done for now; clean up any ephemeral resources but save its state."""
         pass
 
     async def close(self):

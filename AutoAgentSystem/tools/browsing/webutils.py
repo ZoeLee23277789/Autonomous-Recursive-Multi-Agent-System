@@ -2,12 +2,12 @@ import logging
 from urllib.parse import parse_qs, urldefrag, urlencode, urljoin, urlparse, urlunparse
 
 import trafilatura
-from kani import ChatMessage
-from kani.engines import BaseEngine
+from runtime import ChatMessage
+from runtime import BaseEngine
 from playwright.async_api import Locator, Page
 from pydantic import BaseModel, RootModel
 
-from base_kani import BaseKani
+from base_agent import BaseAgent
 from state import RunState
 
 log = logging.getLogger(__name__)
@@ -60,13 +60,13 @@ async def get_google_links(elem: Page | Locator) -> Links:
 # summarization
 async def web_summarize(
     content: str,
-    parent: BaseKani,
+    parent: BaseAgent,
     long_engine: BaseEngine,
     task="Please summarize the main content of the webpage above.",
 ):
     """Summarize the contents of a webpage using the app's ``long_engine``."""
     app = parent.app
-    summarizer = BaseKani(long_engine, app=app, parent=parent, id=f"{parent.id}-summarizer")
+    summarizer = BaseAgent(long_engine, app=app, parent=parent, id=f"{parent.id}-summarizer")
     msg = ChatMessage.user(content)
     token_len = summarizer.message_token_len(msg) + summarizer.message_token_len(ChatMessage.user(task))
     log.info(f"Summarizing web content with length {len(content)} ({token_len} tokens)\n{content[:32]}...")

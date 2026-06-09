@@ -1,4 +1,4 @@
-# run_redel.py
+# run_agent.py
 import sys
 import asyncio
 
@@ -27,4 +27,7 @@ async def main():
         print("\n👋 使用者中斷。再見！")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 使用者中斷。再見！")

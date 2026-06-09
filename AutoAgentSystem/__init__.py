@@ -1,4 +1,4 @@
-from app import ReDel
+from app import AutoAgentSystem
 from config import DEFAULT_LOG_DIR
 from delegation import DelegationBase
 from events import BaseEvent

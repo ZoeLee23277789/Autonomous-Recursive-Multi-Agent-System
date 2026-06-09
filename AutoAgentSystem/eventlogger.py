@@ -62,7 +62,7 @@ class EventLogger:
         if self._suppress_flag:
             return
         self.log_dir.mkdir(exist_ok=True, parents=True)
-        state = [ai.get_save_state().model_dump(mode="json") for ai in self.app.kanis.values()]
+        state = [ai.get_save_state().model_dump(mode="json") for ai in self.app.agents.values()]
         data = {
             "id": self.session_id,
             "title": self.app.title,

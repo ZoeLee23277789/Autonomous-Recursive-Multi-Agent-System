@@ -1,7 +1,12 @@
+from pathlib import Path
+
 from dotenv import load_dotenv
-load_dotenv()
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 import asyncio
+import contextlib
 import functools
 import logging
 import time
@@ -10,39 +15,47 @@ import events
 from eventlogger import EventLogger
 
 from collections.abc import AsyncIterable
-from pathlib import Path
 from typing import Any, Awaitable, Callable
 from weakref import WeakValueDictionary
 
-import kani.exceptions
-from kani import ChatRole, chat_in_terminal_async, ChatMessage
-from kani.engines import BaseEngine
+from runtime import BaseEngine, ChatRole, OpenAIEngine
 
-from base_kani import BaseKani
+from base_agent import BaseAgent
 from delegation.delegate_and_wait import DelegateWait
 from delegation.delegate_one import DelegateOne
-from kanis import DEFAULT_DELEGATE_PROMPT, DEFAULT_ROOT_PROMPT, create_root_kani
+from agents import DEFAULT_DELEGATE_PROMPT, DEFAULT_ROOT_PROMPT, create_root_agent
+from mcts_planner import MCTSPlan, MCTSTaskPlanner
 from tool_config import ToolConfigType, validate_tool_configs
 from utils import AUTOGENERATE_TITLE, AutogenerateTitle, generate_conversation_title
-from graphviz import Digraph
+try:
+    from graphviz import Digraph
+except ImportError:
+    class Digraph:
+        def __init__(self, *args, **kwargs):
+            pass
 
-from tools.browsing.impl import Browsing, ArxivSearch
+        def node(self, *args, **kwargs):
+            pass
+
+        def edge(self, *args, **kwargs):
+            pass
+
+        def render(self, *args, **kwargs):
+            return None
+
+try:
+    from tools.browsing.impl import Browsing, ArxivSearch
+except ImportError:
+    Browsing = None
+    ArxivSearch = None
 
 log = logging.getLogger(__name__)
 
 
 @functools.cache
 def default_engine():
-    try:
-        from kani.engines.openai import OpenAIEngine
-    except kani.exceptions.MissingModelDependencies:
-        raise ImportError(
-            'Default OpenAI engine is not installed. You can either install it using `pip install "kani[openai]"` or'
-            " specify the engine to use in your ReDel system."
-        )
-
     return OpenAIEngine(
-        model="gpt-4o",         # gpt-3.5-turbo
+        model="gpt-4o-mini",
         temperature=0.3,        # 控制隨機性：越低越穩定
         top_p=0.9,              # 控制 nucleus sampling
         max_tokens=1028         # 每次回應最多 token
@@ -55,7 +68,7 @@ class AutoAgentSystem:
     It's responsible for:
 
     * all delegation configuration options
-    * all the spawned kani and their relations within the session
+    * all the spawned agents and their relations within the session
     * dispatching all events from the session
     * logging events
 
@@ -68,14 +81,16 @@ class AutoAgentSystem:
         # engines
         root_engine: BaseEngine = None,
         delegate_engine: BaseEngine = None,
-        # prompt/kani
+        # prompt/agent
         root_system_prompt: str | None = DEFAULT_ROOT_PROMPT,
-        root_kani_kwargs: dict = None,
+        root_agent_kwargs: dict = None,
         delegate_system_prompt: str | None = DEFAULT_DELEGATE_PROMPT,
-        delegate_kani_kwargs: dict = None,
+        delegate_agent_kwargs: dict = None,
         # delegation/function calling
         delegation_scheme: type | None = DelegateWait,
         max_delegation_depth: int = 4,
+        mcts_planning: bool = True,
+        mcts_iterations: int = 64,
         tool_configs: ToolConfigType = None,
         root_has_tools: bool = False,
         # logging
@@ -87,25 +102,23 @@ class AutoAgentSystem:
         self.visualizer = TreeVisualizer()
         self.global_task_log = []  # 🧠 全局任務追蹤記憶體
         """
-        :param root_engine: The engine to use for the root kani. Requires function calling. (default: gpt-4o)
-            See :external+kani:doc:`engines` for a list of available engines and their capabilities.
-        :param delegate_engine: The engine to use for each delegate kani. Requires function calling. (default: gpt-4o)
-            See :external+kani:doc:`engines` for a list of available engines and their capabilities.
-        :param root_system_prompt: The system prompt for the root kani. See ``redel.kanis`` for default.
-        :param root_kani_kwargs: Additional keyword args to pass to :class:`kani.Kani`.
-        :param delegate_system_prompt: The system prompt for the each delegate kani. See ``redel.kanis`` for default.
-        :param delegate_kani_kwargs: Additional keyword args to pass to :class:`kani.Kani`.
-        :param delegation_scheme: A class that each kani capable of delegation will use to provide the delegation tool.
-            See ``redel.delegation`` for examples. Can be ``None`` to disable delegation.
-        :param max_delegation_depth: The maximum delegation depth. Kanis created at this depth will not inherit from the
+        :param root_engine: The engine to use for the root agent. Requires function calling. (default: gpt-4o)
+        :param delegate_engine: The engine to use for each delegate agent. Requires function calling. (default: gpt-4o)
+        :param root_system_prompt: The system prompt for the root agent. See ``agents`` for default.
+        :param root_agent_kwargs: Additional keyword args to pass to the underlying chat-agent runtime.
+        :param delegate_system_prompt: The system prompt for each delegate agent. See ``agents`` for default.
+        :param delegate_agent_kwargs: Additional keyword args to pass to the underlying chat-agent runtime.
+        :param delegation_scheme: A class that each agent capable of delegation will use to provide the delegation tool.
+            See ``delegation`` for examples. Can be ``None`` to disable delegation.
+        :param max_delegation_depth: The maximum delegation depth. Agents created at this depth will not inherit from the
             ``delegation_scheme`` class.
         :param tool_configs: A mapping of tool mixin classes to their configurations (see :class:`.ToolConfig`).
-        :param root_has_tools: Whether the root kani should have access to the configured tools (default
+        :param root_has_tools: Whether the root agent should have access to the configured tools (default
             False).
-        :param title: The title of this session. Set to ``redel.AUTOGENERATE_TITLE`` to automatically generate one
+        :param title: The title of this session. Set to ``AUTOGENERATE_TITLE`` to automatically generate one
             (default), or ``None`` to disable title generation.
         :param log_dir: A path to a directory to save logs for this session. Defaults to
-            ``$REDEL_HOME/instances/{session_id}/`` (default ``~/.redel/instances/{session_id}``).
+            ``$AUTO_AGENT_HOME/instances/{session_id}/`` (default ``~/.auto_agent/instances/{session_id}``).
         :param clear_existing_log: If the log directory has existing events, clear them before writing new events.
             Otherwise, append to existing events.
         :param session_id: The ID of this session. Generally this should not be set manually; it is used for loading
@@ -115,10 +128,10 @@ class AutoAgentSystem:
             root_engine = default_engine()
         if delegate_engine is None:
             delegate_engine = default_engine()
-        if root_kani_kwargs is None:
-            root_kani_kwargs = {}
-        if delegate_kani_kwargs is None:
-            delegate_kani_kwargs = {}
+        if root_agent_kwargs is None:
+            root_agent_kwargs = {}
+        if delegate_agent_kwargs is None:
+            delegate_agent_kwargs = {}
         if tool_configs is None:
             tool_configs = {}
 
@@ -127,26 +140,32 @@ class AutoAgentSystem:
         # engines
         self.root_engine = root_engine
         self.delegate_engine = delegate_engine
-        # prompt/kani
+        # prompt/agent
         self.root_system_prompt = root_system_prompt
-        self.root_kani_kwargs = root_kani_kwargs
+        self.root_agent_kwargs = root_agent_kwargs
         self.delegate_system_prompt = delegate_system_prompt
-        self.delegate_kani_kwargs = delegate_kani_kwargs
+        self.delegate_agent_kwargs = delegate_agent_kwargs
         # delegation/function calling
         self.delegation_scheme = delegation_scheme
         self.max_delegation_depth = max_delegation_depth
+        self.mcts_planning = mcts_planning
+        self.mcts_iterations = mcts_iterations
+        self.mcts_planner = MCTSTaskPlanner(iterations=mcts_iterations)
+        self.last_mcts_plan: MCTSPlan | None = None
         self.tool_configs = tool_configs
         # 註冊工具
-        self.tool_configs.update({
-            Browsing: {
-                "always_include": True,
-                "kwargs": {}
-            },
-            ArxivSearch: {
+        default_tools = {}
+        if Browsing is not None:
+            default_tools[Browsing] = {
                 "always_include": True,
                 "kwargs": {}
             }
-        })
+        if ArxivSearch is not None:
+            default_tools[ArxivSearch] = {
+                "always_include": True,
+                "kwargs": {}
+            }
+        self.tool_configs.update(default_tools)
         self.root_has_tools = root_has_tools
 
         # internals
@@ -166,13 +185,14 @@ class AutoAgentSystem:
         # logging
         self.logger = EventLogger(self, self.session_id, log_dir=log_dir, clear_existing_log=clear_existing_log)
         self.add_listener(self.logger.log_event)
-        # kanis
-        self.kanis = WeakValueDictionary()
-        self.root_kani = None
+        # agents
+        self.agents = WeakValueDictionary()
+        self.root_agent = None
+        self._closed = False
 
     def get_config(self, **kwargs):
         """
-        Get a dictionary with arguments suitable for passing to a ReDel constructor to create a new instance with
+        Get a dictionary with arguments suitable for passing to an AutoAgentSystem constructor to create a new instance with
         mostly the same configuration.
 
         By default, the title, log_dir, and session_id will not be copied. Explicitly set these as keyword
@@ -184,39 +204,52 @@ class AutoAgentSystem:
             "root_engine": self.root_engine,
             "delegate_engine": self.delegate_engine,
             "root_system_prompt": self.root_system_prompt,
-            "root_kani_kwargs": self.root_kani_kwargs,
+            "root_agent_kwargs": self.root_agent_kwargs,
             "delegate_system_prompt": self.delegate_system_prompt,
-            "delegate_kani_kwargs": self.delegate_kani_kwargs,
+            "delegate_agent_kwargs": self.delegate_agent_kwargs,
             "delegation_scheme": self.delegation_scheme,
             "max_delegation_depth": self.max_delegation_depth,
+            "mcts_planning": self.mcts_planning,
+            "mcts_iterations": self.mcts_iterations,
             "tool_configs": self.tool_configs,
             "root_has_tools": self.root_has_tools,
         }
         config.update(kwargs)
         return config
 
+    def prepare_task_prompt(self, user_input: str, announce: bool = False) -> str:
+        if not self.mcts_planning:
+            self.last_mcts_plan = None
+            return user_input
+
+        plan = self.mcts_planner.plan(user_input)
+        self.last_mcts_plan = plan
+        if announce and plan.should_inject:
+            print(f"\n[🧭 MCTS 任務規劃] {plan.short_summary()}\n")
+        return plan.to_prompt(user_input)
+
     async def ensure_init(self):
         """Called at least once before any messaging happens. Used to do async init. Must be idempotent."""
         async with self._init_lock:  # lock in case of parallel calls - no double creation
-            if self.root_kani is None:
-                self.root_kani = await create_root_kani(
+            if self.root_agent is None:
+                self.root_agent = await create_root_agent(
                     self.root_engine,
-                    # create_root_kani args
+                    # create_root_agent args
                     app=self,
                     delegation_scheme=self.delegation_scheme,
                     tool_configs=self.tool_configs,
                     root_has_tools=self.root_has_tools,
-                    # BaseKani args
+                    # BaseAgent args
                     name="root",
-                    # Kani args
+                    # runtime args
                     system_prompt=self.root_system_prompt,
-                    **self.root_kani_kwargs,
+                    **self.root_agent_kwargs,
                 )
             if self.dispatch_task is None:
                 self.dispatch_task = asyncio.create_task(
-                    self._dispatch_task(), name=f"redel-dispatch-{self.session_id}"
+                    self._dispatch_task(), name=f"agent-dispatch-{self.session_id}"
                 )
-        return self.root_kani
+        return self.root_agent
 
     # === entrypoints ===
     async def chat_from_queue(self, q: asyncio.Queue):
@@ -227,7 +260,8 @@ class AutoAgentSystem:
             try:
                 user_msg = await q.get()
                 log.info(f"Message from queue: {user_msg.content!r}")
-                async for stream in self.root_kani.full_round_stream(user_msg.content):
+                planned_content = self.prepare_task_prompt(user_msg.content)
+                async for stream in self.root_agent.full_round_stream(planned_content):
                     msg = await stream.message()
                     if msg.role == ChatRole.ASSISTANT:
                         log.info(f"AI: {msg}")
@@ -238,19 +272,6 @@ class AutoAgentSystem:
                 await self.logger.write_state()  # autosave
 
     # async def chat_in_terminal(self):
-    #     """Chat with the defined system in the terminal. Prints function calls and root messages to the terminal."""
-    #     await self.ensure_init()
-    #     while True:
-    #         try:
-    #             await chat_in_terminal_async(self.root_kani, show_function_args=True, rounds=1)
-    #             self.visualizer.render("agent_tree", view=True)
-    #         except KeyboardInterrupt:
-    #             await self.close()
-    #         finally:
-    #             self.dispatch(events.RoundComplete(session_id=self.session_id))
-    #             await self.logger.write_state()  # autosave
-    
-    # async def chat_in_terminal(self):
     #     await self.ensure_init()
     #     while True:
     #         try:
@@ -260,7 +281,7 @@ class AutoAgentSystem:
     #                 await self.close()
     #                 break
     
-    #             async for stream in self.root_kani.full_round_stream(user_input):
+    #             async for stream in self.root_agent.full_round_stream(user_input):
     #                 msg = await stream.message()
     #                 if msg.role == ChatRole.ASSISTANT:
     #                     print(f"AI: {msg.text}")
@@ -276,14 +297,19 @@ class AutoAgentSystem:
     async def chat_in_terminal(self):
         await self.ensure_init()
         while True:
+            shutting_down = False
             try:
                 user_input = input("USER: ")
+                if not user_input.strip():
+                    continue
                 if user_input.strip().lower() in ("exit", "quit"):
                     print("👋 使用者中斷。再見！")
+                    shutting_down = True
                     await self.close()
                     break
     
-                async for stream in self.root_kani.full_round_stream(user_input):
+                planned_input = self.prepare_task_prompt(user_input, announce=True)
+                async for stream in self.root_agent.full_round_stream(planned_input):
                     print("AI:", end="", flush=True)
                     content = ""
                     async for token in stream:
@@ -294,15 +320,38 @@ class AutoAgentSystem:
                     msg = await stream.message()
                     if msg.tool_calls:
                         print(f"\n[🛠️ Tool Call]: {msg.tool_calls}")
-    
-            except KeyboardInterrupt:
+
+            except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
                 print("\n👋 使用者中斷（Ctrl+C）。再見！")
+                shutting_down = True
                 await self.close()
                 break
+
+            except Exception as e:
+                message = str(e)
+                if "invalid_api_key" in message or "Incorrect API key" in message or "AuthenticationError" in type(e).__name__:
+                    import os
+
+                    key = os.getenv("OPENAI_API_KEY", "")
+                    key_hint = f"{key[:10]}...{key[-4:]}" if key else "missing"
+                    print(
+                        "\n❌ OpenAI API key 無效、已失效，或目前 project 無法呼叫聊天模型。\n"
+                        f"目前程式讀到的 key：{key_hint}\n"
+                        "請確認 .env 的 OPENAI_API_KEY，或用下方 chat completion 測試指令確認。\n"
+                    )
+                    continue
+                if "Connection error" in message or "APIConnectionError" in type(e).__name__:
+                    print("\n❌ 無法連線到 OpenAI API。請確認網路、防火牆、代理設定後再試。\n")
+                    continue
+                log.exception("Error in chat_in_terminal:")
+                print(f"\n❌ 執行時發生錯誤：{e}\n")
+                continue
+
             finally:
-                self.dispatch(events.RoundComplete(session_id=self.session_id))
-                await self.logger.write_state()
-                self.visualizer.render("agent_tree", view=True)
+                if not shutting_down and not self._closed:
+                    self.dispatch(events.RoundComplete(session_id=self.session_id))
+                    await self.logger.write_state()
+                    self.visualizer.render("agent_tree", view=True)
 
 
 
@@ -318,10 +367,11 @@ class AutoAgentSystem:
         q = asyncio.Queue()
         self.add_listener(q.put)
 
-        # submit query to the kani to run in bg
+        # submit query to the root agent to run in bg
         async def _task():
             try:
-                async for _ in self.root_kani.full_round(query):
+                planned_query = self.prepare_task_prompt(query)
+                async for _ in self.root_agent.full_round(planned_query):
                     pass
             finally:
                 self.dispatch(events.RoundComplete(session_id=self.session_id))
@@ -385,16 +435,15 @@ class AutoAgentSystem:
         """Wait until all events have finished processing."""
         await self.event_queue.join()
 
-    # --- kani lifecycle ---
-    def on_kani_creation(self, ai: BaseKani):
-        """Called by the redel kani constructor.
-        Registers a new kani in the app, handles parent-child bookkeeping, and dispatches a KaniSpawn event."""
-        self.kanis[ai.id] = ai
+    # --- agent lifecycle ---
+    def on_agent_creation(self, ai: BaseAgent):
+        """Register a new agent, handle parent-child bookkeeping, and dispatch an AgentSpawn event."""
+        self.agents[ai.id] = ai
         self.visualizer.add_node(ai.name, label=ai.name)
         if ai.parent:
             ai.parent.children[ai.id] = ai
             self.visualizer.add_edge(ai.parent.name, ai.name)
-        self.dispatch(events.KaniSpawn.from_kani(ai))
+        self.dispatch(events.AgentSpawn.from_agent(ai))
 
     # === resources + app lifecycle ===
     async def create_title_listener(self, event):
@@ -408,7 +457,7 @@ class AutoAgentSystem:
         ):
             self.title = "..."  # prevent another message from generating a title
             try:
-                self.title = await generate_conversation_title(self.root_kani)
+                self.title = await generate_conversation_title(self.root_agent)
                 self.dispatch(events.SessionMetaUpdate(title=self.title))
             except Exception:
                 log.exception("Could not generate conversation title:")
@@ -418,15 +467,23 @@ class AutoAgentSystem:
 
     async def close(self):
         """Clean up all the app resources."""
-        self.dispatch(events.SessionClose(session_id=self.session_id))
-        await self.drain()
+        if self._closed:
+            return
+        self._closed = True
+
+        if self.dispatch_task is not None and not self.dispatch_task.done():
+            self.dispatch(events.SessionClose(session_id=self.session_id))
+            await self.drain()
         if self.dispatch_task is not None:
             self.dispatch_task.cancel()
-        await asyncio.gather(
-            self.logger.close(),
-            self.root_kani.close(),
-            *(child.close() for child in self.kanis.values()),
-        )
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.dispatch_task
+
+        close_tasks = [self.logger.close()]
+        if self.root_agent is not None:
+            close_tasks.append(self.root_agent.close())
+        close_tasks.extend(child.close() for child in list(self.agents.values()) if child is not self.root_agent)
+        await asyncio.gather(*close_tasks, return_exceptions=True)
 
         
 class TreeVisualizer:

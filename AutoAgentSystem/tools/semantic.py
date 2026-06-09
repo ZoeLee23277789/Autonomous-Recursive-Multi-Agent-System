@@ -1,6 +1,6 @@
 # tools/semantic.py
 import httpx
-from kani import ai_function
+from runtime import ai_function
 from tools import ToolBase
 
 class SemanticScholarSearch(ToolBase):

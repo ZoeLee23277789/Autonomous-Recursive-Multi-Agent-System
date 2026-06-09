@@ -2,7 +2,7 @@
 
 import sqlite3
 import json
-from kani import ai_function
+from runtime import ai_function
 from ._base import ToolBase
 
 class SQLiteSearch(ToolBase):

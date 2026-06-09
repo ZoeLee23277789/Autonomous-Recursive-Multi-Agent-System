@@ -1,13 +1,13 @@
 import os
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 # ==== core ====
-REDEL_HOME = Path(os.getenv("REDEL_HOME", "~/.redel")).expanduser()
+AUTO_AGENT_HOME = Path(os.getenv("AUTO_AGENT_HOME", PROJECT_ROOT / ".auto_agent")).expanduser()
 
 # caching of embeddings, etc
-REDEL_CACHE_DIR = Path(os.getenv("REDEL_CACHE", "~/.cache/redel")).expanduser()
-REDEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+AUTO_AGENT_CACHE_DIR = Path(os.getenv("AUTO_AGENT_CACHE", PROJECT_ROOT / ".cache" / "auto_agent")).expanduser()
 
-# log instances to ~/.redel/instances by default
-DEFAULT_LOG_DIR = REDEL_HOME / "instances"
-DEFAULT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+# log instances to .auto_agent/instances by default
+DEFAULT_LOG_DIR = AUTO_AGENT_HOME / "instances"

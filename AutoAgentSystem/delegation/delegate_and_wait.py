@@ -2,9 +2,25 @@ import asyncio
 import logging
 from typing import Annotated
 
-from kani import AIParam, ChatRole, ai_function
-from rapidfuzz import fuzz
-import openai
+from runtime import AIParam, ChatRole, ai_function
+try:
+    from rapidfuzz import fuzz
+except ImportError:
+    from difflib import SequenceMatcher
+
+    class fuzz:
+        @staticmethod
+        def ratio(a, b):
+            return int(SequenceMatcher(None, a, b).ratio() * 100)
+
+try:
+    import openai
+except ImportError:
+    class _OpenAIShim:
+        class RateLimitError(Exception):
+            pass
+
+    openai = _OpenAIShim()
 
 import events
 from state import RunState
@@ -23,11 +39,25 @@ class DelegateWait(DelegationBase):
     def is_duplicate_task(self, instructions: str):
         return any(instructions == task["task"] for task in self.app.global_task_log)
 
-    @ai_function(desc="Delegate a subtask to another agent with specific instructions. Returns immediately.")
+    @ai_function(
+        desc=(
+            "Delegate a bounded role-specific subtask to another agent. Use this to build the topology you selected: "
+            "flat fan-out, hierarchical team leads, pipeline phases, or review/debate agents. Returns immediately."
+        )
+    )
     async def delegate(
         self,
-        instructions: Annotated[str, AIParam("Detailed instructions for your helper.")],
-        who: Annotated[str, AIParam("Name of an existing helper to continue with (optional).")] = None,
+        instructions: Annotated[
+            str,
+            AIParam(
+                "Detailed, scoped instructions for the helper. Include its role, boundaries, expected output, and "
+                "whether it may further delegate if its subtask is still broad."
+            ),
+        ],
+        who: Annotated[
+            str,
+            AIParam("Name of an existing helper to continue with (optional). Use this for follow-up within a subtree."),
+        ] = None,
     ):
         log.info(f"Delegated with instructions: {instructions}")
 
@@ -41,22 +71,22 @@ class DelegateWait(DelegationBase):
             print(f"\n🔁 已建立 {len(self.helpers)} 個 sub-agent，啟動自動統整機制...\n")
             self.helper_futures["__AUTO_WAITING__"] = asyncio.create_task(self._auto_wait_all())
 
-        if self.kani.last_user_message and fuzz.ratio(instructions, self.kani.last_user_message.content) > 80:
+        if self.agent.last_user_message and fuzz.ratio(instructions, self.agent.last_user_message.content) > 80:
             return "You shouldn't delegate the entire task to a helper. Break it into smaller parts if necessary."
 
         if who and who in self.helpers:
             if who in self.helper_futures:
                 return f"{who!r} is still working. Wait or delegate to someone else."
             helper = self.helpers[who]
-            self.app.dispatch(events.KaniDelegated(
-                parent_id=self.kani.id,
+            self.app.dispatch(events.AgentDelegated(
+                parent_id=self.agent.id,
                 child_id=helper.id,
-                parent_message_idx=len(self.kani.chat_history) - 1,
+                parent_message_idx=len(self.agent.chat_history) - 1,
                 child_message_idx=len(helper.chat_history),
                 instructions=instructions,
             ))
         else:
-            helper = await self.create_delegate_kani(instructions)
+            helper = await self.create_delegate_agent(instructions)
             helper.task_description = instructions
             self.helpers[helper.name] = helper
             print(f"\n[✅ 任務指派] Agent: {helper.name}")
@@ -106,7 +136,7 @@ class DelegateWait(DelegationBase):
                     if entry["agent"] == helper.name and entry["task"] == instructions:
                         entry["status"] = f"failed: {e}"
                 try:
-                    new_helper = await self.create_delegate_kani(instructions)
+                    new_helper = await self.create_delegate_agent(instructions)
                     new_helper.task_description = instructions
                     self.helpers[new_helper.name] = new_helper
                     print(f"\n[🔁 任務重新委派] 由 {helper.name} 改為 {new_helper.name}")
@@ -130,7 +160,7 @@ class DelegateWait(DelegationBase):
             print("⚠️ 沒有任何有效的子任務正在執行，跳過自動統整。")
             return "⚠️ 沒有任何有效的子任務正在執行，跳過自動統整。"
 
-        with self.kani.run_state(RunState.WAITING):
+        with self.agent.run_state(RunState.WAITING):
             done, _ = await asyncio.wait(active_futures, return_when=asyncio.ALL_COMPLETED)
 
         results = []
@@ -156,7 +186,7 @@ class DelegateWait(DelegationBase):
         if until == "next":
             if not self.helper_futures:
                 return "There are no active sub-agents to wait for."
-            with self.kani.run_state(RunState.WAITING):
+            with self.agent.run_state(RunState.WAITING):
                 done, _ = await asyncio.wait(self.helper_futures.values(), return_when=asyncio.FIRST_COMPLETED)
             future = done.pop()
             try:
@@ -175,7 +205,7 @@ class DelegateWait(DelegationBase):
         elif until == "all":
             if not self.helper_futures:
                 return "No sub-agents were successfully assigned. Please try delegating again."
-            with self.kani.run_state(RunState.WAITING):
+            with self.agent.run_state(RunState.WAITING):
                 done, _ = await asyncio.wait(self.helper_futures.values(), return_when=asyncio.ALL_COMPLETED)
             results = []
             for future in done:
@@ -197,7 +227,7 @@ class DelegateWait(DelegationBase):
             if until not in self.helper_futures:
                 return f"No active helper named {until}."
             future = self.helper_futures.pop(until)
-            with self.kani.run_state(RunState.WAITING):
+            with self.agent.run_state(RunState.WAITING):
                 try:
                     res = await future
                     if isinstance(res, tuple) and len(res) == 2:
@@ -207,4 +237,3 @@ class DelegateWait(DelegationBase):
                 except Exception as e:
                     result = f"Exception: {e}"
             return f"{until}:{result}"
-

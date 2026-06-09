@@ -165,8 +165,11 @@ coverage
 *.local
 
 .kanpai/
-.redel/
+.auto_agent/
+.cache/auto_agent/
 .temp/
+agent_tree
+agent_tree*.png
 .DS_Store
 BLEURT-20/
 /experiments/webarena/**/webarena_trace.zip

@@ -3,16 +3,16 @@ import json
 import uuid
 from typing import Iterable, TYPE_CHECKING, TypeVar
 
-from kani import Kani
+from runtime import ChatAgentRuntime
 
 if TYPE_CHECKING:
-    from .base_kani import BaseKani
+    from .base_agent import BaseAgent
 
 T = TypeVar("T")
 
 
-def create_kani_id() -> str:
-    """Create a unique identifier for a kani."""
+def create_agent_id() -> str:
+    """Create a unique identifier for an agent."""
     return str(uuid.uuid4())
 
 
@@ -20,9 +20,9 @@ def create_kani_id() -> str:
 # thin class for typing
 class AutogenerateTitle:
     """
-    A sentinel class to tell ReDel to automatically generate a session title.
+    A sentinel class to tell the agent system to automatically generate a session title.
 
-    Do not construct manually - use the singleton ``redel.AUTOGENERATE_TITLE``.
+    Do not construct manually - use the singleton ``AUTOGENERATE_TITLE``.
     """
 
     def __repr__(self):
@@ -32,9 +32,9 @@ class AutogenerateTitle:
 AUTOGENERATE_TITLE = AutogenerateTitle()
 
 
-async def generate_conversation_title(ai: "BaseKani"):
-    """Given an kani, create a title for its current conversation state."""
-    helper = Kani(ai.engine)
+async def generate_conversation_title(ai: "BaseAgent"):
+    """Given an agent, create a title for its current conversation state."""
+    helper = ChatAgentRuntime(ai.engine)
     chat_history = "\n".join(f"{msg.role.value}: {msg.text}" for msg in ai.chat_history if msg.text)
     title = await helper.chat_round_str(
         "Here is the start of a conversation:\n"

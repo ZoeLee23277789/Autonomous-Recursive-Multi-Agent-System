@@ -5,7 +5,7 @@
 # import events
 # import pandas as pd
 # from tqdm import tqdm
-# from kani import ChatRole
+# from runtime import ChatRole
 # from dotenv import load_dotenv
 
 # load_dotenv()
@@ -63,7 +63,7 @@
 # async def chat_once(agent_system, user_input: str) -> str:
 #     await agent_system.ensure_init()
 #     response_text = ""
-#     async for stream_manager in agent_system.root_kani.full_round_stream(user_input):
+#     async for stream_manager in agent_system.root_agent.full_round_stream(user_input):
 #         message = await stream_manager.message()
 #         if message.role == ChatRole.ASSISTANT:
 #             response_text += message.content or ""
@@ -74,7 +74,7 @@
 #     # ✅ 預先初始化 WikipediaSearch，避免重複建立
 #     wiki_search_tool = WikipediaSearch(
 #         app=None,
-#         kani=None,
+#         agent=None,
 #         wiki_dir=r"C:\Users\USER\Downloads\Test_Agent\Test_5\Dataset\FEVER\wiki-pages"
 #     )
 #     print("🚀 開始建置 Wikipedia Index...")   # 🔥 新增：開始訊息
@@ -97,10 +97,10 @@
 
 #     # ✅ 加 event logger
 #     async def event_logger(event):
-#         if isinstance(event, events.KaniDelegated):
+#         if isinstance(event, events.AgentDelegated):
 #             print(f"\n🤖 子 Agent 建立：{event.child_id}")
 #             print(f"📄 任務指派內容：{event.instructions}")
-#         if isinstance(event, events.KaniMessage):
+#         if isinstance(event, events.AgentMessage):
 #             if event.msg.role == ChatRole.ASSISTANT and event.msg.tool_calls:
 #                 print(f"🛠️ 子 Agent 使用工具：{event.msg.tool_calls}")
 
@@ -165,7 +165,7 @@
 # import events
 # import pandas as pd
 # from tqdm import tqdm
-# from kani import ChatRole
+# from runtime import ChatRole
 # from dotenv import load_dotenv
 # from pathlib import Path
 
@@ -246,7 +246,7 @@
 # async def chat_once(agent_system, user_input: str) -> str:
 #     await agent_system.ensure_init()
 #     response_text = ""
-#     async for stream_manager in agent_system.root_kani.full_round_stream(user_input):
+#     async for stream_manager in agent_system.root_agent.full_round_stream(user_input):
 #         message = await stream_manager.message()
 #         if message.role == ChatRole.ASSISTANT:
 #             response_text += message.content or ""
@@ -263,7 +263,7 @@
 #     global _search_sentence_count
 
 #     # 1) 遞迴：建立子 agent
-#     if isinstance(event, events.KaniDelegated):
+#     if isinstance(event, events.AgentDelegated):
 #         print("\n" + "=" * 90)
 #         print(f"🤖 [DELEGATE] parent={getattr(event, 'parent_id', '?')} -> child={event.child_id}")
 #         print(f"👤 who={getattr(event, 'who', '?')}")
@@ -273,7 +273,7 @@
 #         return
 
 #     # 2) agent 訊息：assistant 回覆 + tool calls
-#     if isinstance(event, events.KaniMessage):
+#     if isinstance(event, events.AgentMessage):
 #         msg = event.msg
 #         role = msg.role
 #         content = (msg.content or "").strip()
@@ -312,7 +312,7 @@
 #     # ✅ 預先初始化 WikipediaSearch，避免重複建立
 #     wiki_search_tool = WikipediaSearch(
 #         app=None,
-#         kani=None,
+#         agent=None,
 #         wiki_dir=str(WIKI_DIR)
 #     )
 
@@ -395,7 +395,7 @@ from collections import defaultdict
 import events
 import pandas as pd
 from tqdm import tqdm
-from kani import ChatRole
+from runtime import ChatRole
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -469,7 +469,7 @@ def normalize_label(text: str) -> str:
 async def chat_once(agent_system, user_input: str) -> str:
     await agent_system.ensure_init()
     response_text = ""
-    async for stream_manager in agent_system.root_kani.full_round_stream(user_input):
+    async for stream_manager in agent_system.root_agent.full_round_stream(user_input):
         message = await stream_manager.message()
         if message.role == ChatRole.ASSISTANT:
             response_text += message.content or ""
@@ -543,24 +543,24 @@ def disp(uuid_: str) -> str:
 
 
 # =========================================================
-# ✅ 嘗試從 event 抓出 kani 的 UUID + name（不同版本 events 結構不一樣）
+# ✅ 嘗試從 event 抓出 agent 的 UUID + name（不同版本 events 結構不一樣）
 # =========================================================
-def _extract_kani_uuid_and_name(event):
+def _extract_agent_uuid_and_name(event):
     """
     回傳 (agent_uuid, agent_display_name)
     """
-    kani = getattr(event, "kani", None) or getattr(event, "sender", None) or getattr(event, "source", None)
+    agent = getattr(event, "agent", None) or getattr(event, "sender", None) or getattr(event, "source", None)
 
     agent_uuid = None
     agent_name = None
 
-    if kani is not None:
-        agent_uuid = getattr(kani, "id", None) or getattr(kani, "kani_id", None)
-        agent_name = getattr(kani, "name", None) or getattr(kani, "display_name", None)
+    if agent is not None:
+        agent_uuid = getattr(agent, "id", None) or getattr(agent, "agent_id", None)
+        agent_name = getattr(agent, "name", None) or getattr(agent, "display_name", None)
 
     # fallback：某些版本直接掛在 event 上
     if agent_uuid is None:
-        agent_uuid = getattr(event, "kani_id", None) or getattr(event, "id", None)
+        agent_uuid = getattr(event, "agent_id", None) or getattr(event, "id", None)
 
     return agent_uuid, agent_name
 
@@ -575,7 +575,7 @@ async def recursive_debug_logger(event):
     global _search_sentence_count
 
     # 1) delegate 事件：最穩定可以拿到 parent_id / child_id / instructions
-    if isinstance(event, events.KaniDelegated):
+    if isinstance(event, events.AgentDelegated):
         parent = getattr(event, "parent_id", "") or ""
         child = getattr(event, "child_id", None) or getattr(event, "child", None) or getattr(event, "id", None)
         # 你的版本是 event.child_id
@@ -604,12 +604,12 @@ async def recursive_debug_logger(event):
         return
 
     # 2) message 事件：抓 UUID + name，才能把 assistant/tool_calls 記到正確 agent
-    if isinstance(event, events.KaniMessage):
+    if isinstance(event, events.AgentMessage):
         msg = event.msg
         role = msg.role
         content = (msg.content or "").strip()
 
-        agent_uuid, agent_display = _extract_kani_uuid_and_name(event)
+        agent_uuid, agent_display = _extract_agent_uuid_and_name(event)
         agent_uuid = agent_uuid or "UNKNOWN_AGENT"
 
         # 若 events 有提供顯示名，就存起來；不然用既有/fallback
@@ -707,7 +707,7 @@ def export_collaboration_table():
     print("\n" + "=" * 90)
     print("🤝 Agent 協作表（Collaboration Table）")
     if df_agents.empty:
-        print("(協作表為空：可能是 event 裡抓不到 kani，但不影響 delegate/工具log)")
+        print("(協作表為空：可能是 event 裡抓不到 agent，但不影響 delegate/工具log)")
     else:
         print(df_agents.to_string(index=False))
     print("=" * 90 + "\n")
@@ -842,7 +842,7 @@ def annotate_tree_image(tree_png_path: str, out_png_path: str):
 async def main():
     wiki_search_tool = WikipediaSearch(
         app=None,
-        kani=None,
+        agent=None,
         wiki_dir=str(WIKI_DIR)
     )
 

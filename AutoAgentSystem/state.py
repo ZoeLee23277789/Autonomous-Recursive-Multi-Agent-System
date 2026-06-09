@@ -1,19 +1,19 @@
 import enum
 from typing import TYPE_CHECKING
 
-from kani import AIFunction, ChatMessage, ChatRole
+from runtime import AIFunction, ChatMessage, ChatRole
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from redel.base_kani import BaseKani
+    from base_agent import BaseAgent
 
 
 class RunState(enum.Enum):
     """
-    * ``RunState.STOPPED``: This kani is not currently running anything or waiting on a child.
-    * ``RunState.RUNNING``: This kani is currently generating text.
-    * ``RunState.WAITING``: This kani is waiting for the results of a sub-kani.
-    * ``RunState.ERRORED``: This kani has run into a fatal error. Its internal state is indeterminate.
+    * ``RunState.STOPPED``: This agent is not currently running anything or waiting on a child.
+    * ``RunState.RUNNING``: This agent is currently generating text.
+    * ``RunState.WAITING``: This agent is waiting for the results of a sub-agent.
+    * ``RunState.ERRORED``: This agent has run into a fatal error. Its internal state is indeterminate.
     """
 
     STOPPED = "stopped"  # not currently running anything or waiting on a child
@@ -42,7 +42,7 @@ class AIFunctionState(BaseModel):
         )
 
 
-class KaniState(BaseModel):
+class AgentState(BaseModel):
     id: str
     depth: int
     parent: str | None
@@ -56,7 +56,7 @@ class KaniState(BaseModel):
     functions: list[AIFunctionState]
 
     @classmethod
-    def from_kani(cls, ai: "BaseKani", **kwargs):
+    def from_agent(cls, ai: "BaseAgent", **kwargs):
         return cls(
             id=ai.id,
             depth=ai.depth,

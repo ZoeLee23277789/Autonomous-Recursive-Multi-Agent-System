@@ -12,14 +12,14 @@ class ToolConfig(TypedDict, total=False):
     """A tool's config should be a dictionary with any of the following keys:"""
 
     always_include: bool
-    """If true, each delegate kani will *always* have access to this tool. Defaults to False."""
+    """If true, each delegate agent will *always* have access to this tool. Defaults to False."""
     always_include_root: bool
-    """If true, the *root* kani will have access to this tool (but not necessarily delegates unless ``always_include`` 
+    """If true, the *root* agent will have access to this tool (but not necessarily delegates unless ``always_include`` 
     is also set)."""
     kwargs: dict
     """Keyword arguments to pass to the constructor of this class. Defaults to ``{}``.
     
-    The tool class' constructor will be called each time a new instance is bound to a new kani. Each kani will have
+    The tool class' constructor will be called each time a new instance is bound to a new agent. Each agent will have
     its own instance of the tool.
     """
 

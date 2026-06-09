@@ -23,7 +23,7 @@ async def evaluate_dataset(dataset_path, num_examples=2):
         },
         root_has_tools=True
     )
-    kani = await app.ensure_init()
+    agent = await app.ensure_init()
 
     with open(dataset_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -49,10 +49,10 @@ async def evaluate_dataset(dataset_path, num_examples=2):
 
         # 只會派 5 個以內 sub-agent
         for instr in instructions:
-            await kani.delegator.delegate(instr)
+            await agent.delegator.delegate(instr)
 
         # 等所有 sub agent 回來
-        await kani.delegator.wait(until="all")
+        await agent.delegator.wait(until="all")
 
         # 打印所有 sub agent 任務情況
         print("\n=== Sub-Agent 任務列表 ===")

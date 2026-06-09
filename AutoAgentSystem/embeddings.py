@@ -9,7 +9,7 @@ from openai import OpenAI
 import config
 from utils import batched
 
-VECTOR_CACHE_DIR = config.REDEL_CACHE_DIR / "embeddings"
+VECTOR_CACHE_DIR = config.AUTO_AGENT_CACHE_DIR / "embeddings"
 VECTOR_CACHE_DIR.mkdir(exist_ok=True, parents=True)
 
 

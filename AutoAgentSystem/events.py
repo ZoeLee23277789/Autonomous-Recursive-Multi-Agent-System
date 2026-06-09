@@ -2,10 +2,10 @@ import abc
 import time
 from typing import Literal
 
-from kani import ChatMessage, ChatRole
+from runtime import ChatMessage, ChatRole
 from pydantic import BaseModel, Field
 
-from state import KaniState, RunState
+from state import AgentState, RunState
 
 
 
@@ -23,20 +23,20 @@ class Error(BaseEvent):
     msg: str
 
 
-class KaniSpawn(KaniState, BaseEvent):
+class AgentSpawn(AgentState, BaseEvent):
     """
-    A new kani was spawned. Includes the state of the kani. See :class:`.BaseKani`.
+    A new agent was spawned. Includes the state of the agent. See :class:`.BaseAgent`.
 
     The ID can be the same as an existing ID, in which case this event should overwrite the previous state.
     """
 
-    type: Literal["kani_spawn"] = "kani_spawn"
+    type: Literal["agent_spawn"] = "agent_spawn"
 
 
-class KaniDelegated(BaseEvent):
-    """A kani was just delegated."""
+class AgentDelegated(BaseEvent):
+    """An agent was just delegated."""
 
-    type: Literal["kani_delegated"] = "kani_delegated"
+    type: Literal["agent_delegated"] = "agent_delegated"
     parent_id: str
     child_id: str
     parent_message_idx: int
@@ -44,20 +44,20 @@ class KaniDelegated(BaseEvent):
     instructions: str
 
 
-class KaniStateChange(BaseEvent):
+class AgentStateChange(BaseEvent):
     """
-    A kani's run state changed.
+    An agent's run state changed.
 
     This is primarily used for rendering the color of a node in the web interface.
     """
 
-    type: Literal["kani_state_change"] = "kani_state_change"
+    type: Literal["agent_state_change"] = "agent_state_change"
     id: str
     state: RunState
 
 
 class TokensUsed(BaseEvent):
-    """A kani just finished a request to the engine, which used this many tokens."""
+    """An agent just finished a request to the engine, which used this many tokens."""
 
     type: Literal["tokens_used"] = "tokens_used"
     id: str
@@ -65,19 +65,19 @@ class TokensUsed(BaseEvent):
     completion_tokens: int
 
 
-class KaniMessage(BaseEvent):
-    """A kani added a message to its chat history."""
+class AgentMessage(BaseEvent):
+    """An agent added a message to its chat history."""
 
-    type: Literal["kani_message"] = "kani_message"
+    type: Literal["agent_message"] = "agent_message"
     id: str
     msg: ChatMessage
 
 
 class RootMessage(BaseEvent):
     """
-    The root kani has a new result.
+    The root agent has a new result.
 
-    This will be fired *in addition* to a ``kani_message`` event.
+    This will be fired *in addition* to an ``agent_message`` event.
     """
 
     type: Literal["root_message"] = "root_message"
@@ -85,7 +85,7 @@ class RootMessage(BaseEvent):
 
 
 class StreamDelta(BaseEvent):
-    """A kani is streaming and emitted a new token."""
+    """An agent is streaming and emitted a new token."""
 
     __log_event__ = False
 
@@ -96,14 +96,14 @@ class StreamDelta(BaseEvent):
 
 
 class RoundComplete(BaseEvent):
-    """The root kani has finished a full round and control should be handed off to the user."""
+    """The root agent has finished a full round and control should be handed off to the user."""
 
     type: Literal["round_complete"] = "round_complete"
     session_id: str
 
 
 class SessionClose(BaseEvent):
-    """The ReDel session is closing and clients should be redirected to the home page."""
+    """The agent session is closing and clients should be redirected to the home page."""
 
     __log_event__ = False
 

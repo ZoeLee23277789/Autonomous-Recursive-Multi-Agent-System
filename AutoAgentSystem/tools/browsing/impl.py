@@ -8,8 +8,8 @@ import arxiv
 from typing import Optional, TYPE_CHECKING
 
 from duckduckgo_search import DDGS
-from kani import ChatMessage, ChatRole, ai_function
-from kani.engines import BaseEngine
+from runtime import ChatMessage, ChatRole, ai_function
+from runtime import BaseEngine
 
 try:
     import httpx
@@ -64,8 +64,8 @@ class Browsing(ToolBase):
     ):
         """
         :param long_engine: If a webpage is longer than *max_webpage_len*, send it to this engine to summarize it. If
-            not supplied, uses the kani's engine.
-        :param max_webpage_len: The maximum length of a webpage to send to the kani at once
+            not supplied, uses the agent's engine.
+        :param max_webpage_len: The maximum length of a webpage to send to the agent at once
             (default max context len / 3).
         :param page_concurrency_sem: A semaphore that this tool will acquire when opening a browser page.
         """
@@ -77,7 +77,7 @@ class Browsing(ToolBase):
 
         # the max number of tokens before asking for a summary - default 1/3rd ctx len
         if max_webpage_len is None:
-            max_webpage_len = self.kani.engine.max_context_size // 3
+            max_webpage_len = self.agent.engine.max_context_size // 3
         self.max_webpage_len = max_webpage_len
 
         # content handlers
@@ -262,14 +262,14 @@ class Browsing(ToolBase):
     # ==== helpers ====
     async def maybe_summarize(self, content, max_len=None):
         max_len = max_len or self.max_webpage_len
-        if self.kani.message_token_len(ChatMessage.function("visit_page", content)) > max_len:
+        if self.agent.message_token_len(ChatMessage.function("visit_page", content)) > max_len:
             msg_ctx = "\n\n".join(
-                m.text for m in self.kani.chat_history if m.role != ChatRole.FUNCTION and m.text is not None
+                m.text for m in self.agent.chat_history if m.role != ChatRole.FUNCTION and m.text is not None
             )
             content = await web_summarize(
                 content,
-                parent=self.kani,
-                long_engine=self.long_engine or self.kani.engine,
+                parent=self.agent,
+                long_engine=self.long_engine or self.agent.engine,
                 task=(
                     "Keep the current context in mind:\n"
                     f"<context>\n{msg_ctx}\n</context>\n\n"
