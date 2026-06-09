@@ -13,7 +13,13 @@ class DelegationBase(ToolBase):
     It extends :class:`.ToolBase` with an interface for creating delegate agent instances.
     """
 
-    async def create_delegate_agent(self, instructions: str) -> "RecursiveAgent":
+    async def create_delegate_agent(
+        self,
+        instructions: str,
+        *,
+        role_name: str | None = None,
+        reuse_key: str | None = None,
+    ) -> "RecursiveAgent":
         r"""
         Call this method to get a fresh :class:`.RecursiveAgent` instance.
 
@@ -28,4 +34,4 @@ class DelegationBase(ToolBase):
         * Buffering the delegate's response and returning it to the caller
         * Calling the appropriate cleanup methods of the delegate
         """
-        return await self.agent.create_delegate_agent(instructions)
+        return await self.agent.create_delegate_agent(instructions, role_name=role_name, reuse_key=reuse_key)

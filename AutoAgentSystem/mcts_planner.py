@@ -37,7 +37,9 @@ class MCTSPlan:
             "Execution constraints:\n"
             f"{notes}\n"
             "Follow this plan unless the user's request clearly requires a smaller topology. "
-            "Do not delegate the whole request to a single catch-all agent."
+            "Do not delegate the whole request to a single catch-all agent. "
+            "Use each recommended role as the stable delegate `who` value, and reuse the same role name for later "
+            "subtasks of the same type."
         )
 
     def short_summary(self) -> str:

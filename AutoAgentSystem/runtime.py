@@ -364,6 +364,11 @@ class ChatAgentRuntime:
 
             await self._handle_tool_calls(assistant_msg.tool_calls)
 
+        # If the model spends every allowed round calling tools, force one final synthesis pass.
+        completion = await self.get_model_completion(include_functions=False, **kwargs)
+        assistant_msg = await self.add_completion_to_history(completion)
+        yield assistant_msg
+
     async def full_round_stream(self, prompt: str | ChatMessage, **kwargs):
         async for msg in self.full_round(prompt, **kwargs):
             if msg.role != ChatRole.ASSISTANT:

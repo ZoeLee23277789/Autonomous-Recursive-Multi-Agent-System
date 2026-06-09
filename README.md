@@ -66,6 +66,36 @@ The system will automatically:
 
 ---
 
+# 📈 OpenTelemetry Tracing
+
+Install the optional observability dependencies:
+
+```bash
+pip install -e ".[observability]"
+```
+
+Start Grafana and Tempo locally:
+
+```powershell
+docker compose -f docker-compose.observability.yml up -d
+```
+
+Then enable the built-in OTLP exporter before running the system:
+
+```powershell
+$env:AUTO_AGENT_OTEL_ENABLED="true"
+$env:OTEL_SERVICE_NAME="auto-agent-system"
+$env:OTEL_EXPORTER_OTLP_ENDPOINT="localhost:4317"
+$env:OTEL_EXPORTER_OTLP_INSECURE="true"
+python AutoAgentSystem\__main__.py
+```
+
+Each user request becomes one trace tree. Agent spans are linked by delegation parent/child relationships, and token usage is recorded as `llm.usage.prompt_tokens`, `llm.usage.completion_tokens`, and `llm.usage.total_tokens`.
+
+Open Grafana at http://localhost:3000, choose **Explore**, select the **Tempo** datasource, and search for traces from the `auto-agent-system` service. Each child agent appears as its own span; span duration shows latency, and token usage appears in the span attributes.
+
+---
+
 # 🧪 Running FEVER Benchmark
 
 To evaluate the system on the **FEVER fact verification dataset**, run:
@@ -117,4 +147,3 @@ This script will:
 * market analysis
 * multi-step task planning
 * evaluation of collaborative AI systems
-

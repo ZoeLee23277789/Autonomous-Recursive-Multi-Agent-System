@@ -21,6 +21,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+    "graphviz>=0.20.3,<1.0.0",
     "openai>=1.35.2,<2.0.0",
     "pydantic>=2.0.0,<3.0.0",
     "python-dotenv>=1.0.0,<2.0.0",
@@ -29,7 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 all = [
-    "auto-agent-system[bundled,web]"
+    "auto-agent-system[bundled,web,observability]"
 ]
 
 bundled = [
@@ -46,6 +47,11 @@ web = [
     "fastapi>=0.110.0,<1.0.0",
     "uvicorn~=0.23.2",
     "websockets~=11.0.3",
+]
+
+observability = [
+    "opentelemetry-sdk>=1.25.0,<2.0.0",
+    "opentelemetry-exporter-otlp>=1.25.0,<2.0.0",
 ]
 
 [tool.hatch]

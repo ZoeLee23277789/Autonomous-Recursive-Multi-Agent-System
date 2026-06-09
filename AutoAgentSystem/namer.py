@@ -30,7 +30,10 @@ class Namer:
     ]
 
     def __init__(self):
-        self.gen = itertools.cycle(self.all_names)
+        self.gen = itertools.count()
 
     def get_name(self):
-        return next(self.gen)
+        idx = next(self.gen)
+        base = self.all_names[idx % len(self.all_names)]
+        suffix = idx // len(self.all_names)
+        return base if suffix == 0 else f"{base}_{suffix + 1}"

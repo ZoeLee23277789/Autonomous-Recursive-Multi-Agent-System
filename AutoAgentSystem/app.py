@@ -12,7 +12,7 @@ import logging
 import time
 import uuid
 import events
-from eventlogger import EventLogger
+from eventlogger import OtelEventLogger
 
 from collections.abc import AsyncIterable
 from typing import Any, Awaitable, Callable
@@ -25,11 +25,14 @@ from delegation.delegate_and_wait import DelegateWait
 from delegation.delegate_one import DelegateOne
 from agents import DEFAULT_DELEGATE_PROMPT, DEFAULT_ROOT_PROMPT, create_root_agent
 from mcts_planner import MCTSPlan, MCTSTaskPlanner
+from namer import Namer
 from tool_config import ToolConfigType, validate_tool_configs
 from utils import AUTOGENERATE_TITLE, AutogenerateTitle, generate_conversation_title
 try:
     from graphviz import Digraph
 except ImportError:
+    GRAPHVIZ_IMPORT_ERROR = True
+
     class Digraph:
         def __init__(self, *args, **kwargs):
             pass
@@ -42,6 +45,8 @@ except ImportError:
 
         def render(self, *args, **kwargs):
             return None
+else:
+    GRAPHVIZ_IMPORT_ERROR = False
 
 try:
     from tools.browsing.impl import Browsing, ArxivSearch
@@ -101,6 +106,8 @@ class AutoAgentSystem:
     ):
         self.visualizer = TreeVisualizer()
         self.global_task_log = []  # 🧠 全局任務追蹤記憶體
+        self.namer = Namer()
+        self.reusable_agents = {}
         """
         :param root_engine: The engine to use for the root agent. Requires function calling. (default: gpt-4o)
         :param delegate_engine: The engine to use for each delegate agent. Requires function calling. (default: gpt-4o)
@@ -183,7 +190,7 @@ class AutoAgentSystem:
         else:
             self.title = title
         # logging
-        self.logger = EventLogger(self, self.session_id, log_dir=log_dir, clear_existing_log=clear_existing_log)
+        self.logger = OtelEventLogger(self, self.session_id, log_dir=log_dir, clear_existing_log=clear_existing_log)
         self.add_listener(self.logger.log_event)
         # agents
         self.agents = WeakValueDictionary()
@@ -216,6 +223,19 @@ class AutoAgentSystem:
         }
         config.update(kwargs)
         return config
+
+    def register_reusable_agent(self, reuse_key: str | None, agent: BaseAgent):
+        if reuse_key:
+            self.reusable_agents[reuse_key] = agent
+
+    def get_reusable_agent(self, reuse_key: str | None):
+        if not reuse_key:
+            return None
+        return self.reusable_agents.get(reuse_key)
+
+    def on_agent_reuse(self, parent: BaseAgent, child: BaseAgent):
+        parent.children[child.id] = child
+        self.visualizer.add_edge(parent.id, child.id)
 
     def prepare_task_prompt(self, user_input: str, announce: bool = False) -> str:
         if not self.mcts_planning:
@@ -260,6 +280,10 @@ class AutoAgentSystem:
             try:
                 user_msg = await q.get()
                 log.info(f"Message from queue: {user_msg.content!r}")
+                if isinstance(user_msg, events.BaseEvent):
+                    self.dispatch(user_msg)
+                else:
+                    self.dispatch(events.SendMessage(content=user_msg.content))
                 planned_content = self.prepare_task_prompt(user_msg.content)
                 async for stream in self.root_agent.full_round_stream(planned_content):
                     msg = await stream.message()
@@ -269,6 +293,7 @@ class AutoAgentSystem:
                 log.exception("Error in chat_from_queue:")
             finally:
                 self.dispatch(events.RoundComplete(session_id=self.session_id))
+                await self.drain()
                 await self.logger.write_state()  # autosave
 
     # async def chat_in_terminal(self):
@@ -308,6 +333,7 @@ class AutoAgentSystem:
                     await self.close()
                     break
     
+                self.dispatch(events.SendMessage(content=user_input))
                 planned_input = self.prepare_task_prompt(user_input, announce=True)
                 async for stream in self.root_agent.full_round_stream(planned_input):
                     print("AI:", end="", flush=True)
@@ -350,6 +376,7 @@ class AutoAgentSystem:
             finally:
                 if not shutting_down and not self._closed:
                     self.dispatch(events.RoundComplete(session_id=self.session_id))
+                    await self.drain()
                     await self.logger.write_state()
                     self.visualizer.render("agent_tree", view=True)
 
@@ -370,11 +397,13 @@ class AutoAgentSystem:
         # submit query to the root agent to run in bg
         async def _task():
             try:
+                self.dispatch(events.SendMessage(content=query))
                 planned_query = self.prepare_task_prompt(query)
                 async for _ in self.root_agent.full_round(planned_query):
                     pass
             finally:
                 self.dispatch(events.RoundComplete(session_id=self.session_id))
+                await self.drain()
                 await self.logger.write_state()  # autosave
 
         task = asyncio.create_task(_task())
@@ -439,11 +468,16 @@ class AutoAgentSystem:
     def on_agent_creation(self, ai: BaseAgent):
         """Register a new agent, handle parent-child bookkeeping, and dispatch an AgentSpawn event."""
         self.agents[ai.id] = ai
-        self.visualizer.add_node(ai.name, label=ai.name)
+        self.visualizer.add_node(ai.id, label=self.agent_visual_label(ai))
         if ai.parent:
             ai.parent.children[ai.id] = ai
-            self.visualizer.add_edge(ai.parent.name, ai.name)
+            self.visualizer.add_edge(ai.parent.id, ai.id)
         self.dispatch(events.AgentSpawn.from_agent(ai))
+
+    def agent_visual_label(self, ai: BaseAgent) -> str:
+        role = getattr(ai, "role_name", None)
+        role_line = f"\n{role}" if role and role != ai.name else ""
+        return f"{ai.name}{role_line}\ndepth={ai.depth}"
 
     # === resources + app lifecycle ===
     async def create_title_listener(self, event):
@@ -490,6 +524,7 @@ class TreeVisualizer:
     def __init__(self):
         self.graph = Digraph(comment="Recursive Agent Tree")
         self.edges = set()
+        self.warned_missing_graphviz = False
 
     def add_node(self, name: str, label: str = None):
         if label is None:
@@ -503,4 +538,12 @@ class TreeVisualizer:
             self.edges.add(edge)
 
     def render(self, output_path="agent_tree", view=True):
+        if GRAPHVIZ_IMPORT_ERROR:
+            if not self.warned_missing_graphviz:
+                print(
+                    "\n⚠️ 未安裝 Python graphviz 套件，所以沒有產生 agent_tree.png。\n"
+                    "請執行：python -m pip install graphviz\n"
+                )
+                self.warned_missing_graphviz = True
+            return None
         self.graph.render(output_path, format="png", view=view)

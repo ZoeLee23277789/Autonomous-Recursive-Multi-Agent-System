@@ -5,10 +5,12 @@ import asyncio
 sys.path.append(".")
 
 from app import AutoAgentSystem
+from eventlogger import otel_status_summary
 
 async def main():
     app = AutoAgentSystem()
     print("\n✅ AutoAgentSystem 啟動！直接輸入你的總任務，Ctrl+C / exit 可退出。\n")
+    print(f"📈 OpenTelemetry: {otel_status_summary()}\n")
     try:
         await app.chat_in_terminal()
     except KeyboardInterrupt:

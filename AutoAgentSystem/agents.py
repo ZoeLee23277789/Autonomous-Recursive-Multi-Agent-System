@@ -42,6 +42,9 @@ DEFAULT_ROOT_PROMPT = (
     "proposal, prefer hierarchical tree or pipeline unless it is clearly small.\n"
     "- Never delegate the whole user request as one catch-all task. Delegated instructions must be scoped, role-specific, "
     "and useful for synthesis.\n\n"
+    "Agent reuse rule: the same specialist type should be handled by the same helper agent. When delegating, use a "
+    "stable role name in the `who` argument, such as 'System Architecture Lead'. If a later subtask belongs to that "
+    "same role/type, delegate to the same `who` value instead of creating a new same-type helper.\n\n"
     "When you use delegation, briefly state the topology you selected and why, then delegate. After specialists return, "
     "synthesize the final answer and include a compact agent topology summary if it helps the user understand the work.\n\n"
     "If the user message contains an [MCTS task-planning brief], treat it as an internal execution plan produced by the "
@@ -59,6 +62,7 @@ DEFAULT_DELEGATE_PROMPT = (
     "- If your assigned task is still broad or contains multiple independent expert areas, choose a smaller topology for "
     "your own subtree instead of doing everything yourself.\n"
     "- If you delegate further, keep each child task bounded and role-specific, then synthesize their findings.\n"
+    "- Reuse the same stable `who` role name when a later subtask belongs to an existing specialist type.\n"
     "- You may use tools or APIs if useful.\n"
     "- Produce a clear, concise and actionable result for your task.\n"
     "The current time is {time}."
@@ -76,6 +80,8 @@ class RecursiveAgent(BaseAgent):
         self.delegator = None
         self.tools = []
         self.task_description = None
+        self.role_name = None
+        self.reuse_key = None
 
     def _register_tools(self, delegator: DelegationBase | None, tools: list[ToolBase]):
         new_functions = {}
@@ -90,8 +96,8 @@ class RecursiveAgent(BaseAgent):
     def get_tool(self, cls: type[ToolBase]) -> ToolBase | None:
         return next((t for t in self.tools if type(t) is cls), None)
 
-    async def create_delegate_agent(self, instructions: str):
-        name = self.namer.get_name()
+    async def create_delegate_agent(self, instructions: str, *, role_name: str | None = None, reuse_key: str | None = None):
+        name = self.app.namer.get_name()
         agent_inst = RecursiveAgent(
             self.app.delegate_engine,
             app=self.app,
@@ -102,7 +108,10 @@ class RecursiveAgent(BaseAgent):
             **self.app.delegate_agent_kwargs,
         )
         agent_inst.task_description = instructions
+        agent_inst.role_name = role_name
+        agent_inst.reuse_key = reuse_key
         await self.register_child_agent(agent_inst, instructions)
+        self.app.register_reusable_agent(reuse_key, agent_inst)
         self.app.dispatch(
             events.AgentDelegated(
                 parent_id=self.id,
