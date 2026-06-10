@@ -315,7 +315,7 @@ class AutoAgentSystem:
         self.last_mcts_plan = plan
         self.active_topology = plan.topology if plan else None
         self.peer_notes = []
-        self.pipeline_roles = list(plan.first_level_roles) if plan and plan.topology == "pipeline" else []
+        self.pipeline_roles = []
         self.pipeline_stage_index = 0
         self.pipeline_running_role = None
         self.pipeline_last_agent_id = None
@@ -326,39 +326,8 @@ class AutoAgentSystem:
         return " ".join(role_name.strip().lower().split())
 
     def validate_pipeline_delegate(self, parent: BaseAgent, role_name: str | None):
-        if self.active_topology in ("network_peer", "review_debate", "flat_fanout") and parent is not self.root_agent:
-            return (
-                f"{self.active_topology} mode is active. First-level agents should collaborate with peers using "
-                "link_peer, publish_peer_note, read_peer_notes, or consult_peer instead of creating subordinate agents."
-            )
-
-        if self.active_topology != "pipeline":
-            return None
-
-        if parent is not self.root_agent:
-            return (
-                "Pipeline mode is active. Phase agents should complete their assigned phase directly, publish/read "
-                "peer notes if context is needed, and avoid creating subordinate agents unless Root changes the plan."
-            )
-
-        if not self.pipeline_roles:
-            return None
-
-        if self.pipeline_running_role:
-            return (
-                f"Pipeline phase {self.pipeline_running_role!r} is still running. "
-                "Use wait(until='all') before starting the next pipeline phase."
-            )
-
-        if self.pipeline_stage_index >= len(self.pipeline_roles):
-            return None
-
-        expected = self.pipeline_roles[self.pipeline_stage_index]
-        if self._normalize_role_key(role_name) != self._normalize_role_key(expected):
-            return (
-                f"Pipeline order requires the next stage to be {expected!r}. "
-                "Delegate only that stage now, wait for it, then continue to the following stage."
-            )
+        # The topology planner is advisory. It suggests a shape in the Root prompt,
+        # but runtime delegation remains adaptive and agent-led.
         return None
 
     def mark_pipeline_role_started(self, helper: BaseAgent):
@@ -381,12 +350,12 @@ class AutoAgentSystem:
                 if self._normalize_role_key(role) == self._normalize_role_key(expected):
                     self.pipeline_stage_index += 1
 
-    def prepare_task_prompt(self, user_input: str, announce: bool = False) -> str:
+    async def prepare_task_prompt(self, user_input: str, announce: bool = False) -> str:
         if not self.mcts_planning:
             self.activate_plan(None)
             return user_input
 
-        plan = self.mcts_planner.plan(user_input)
+        plan = await self.mcts_planner.plan(user_input, engine=self.root_engine)
         self.activate_plan(plan)
         if announce and plan.should_inject:
             print(f"\n[🧭 MCTS 任務規劃] {plan.short_summary()}\n")
@@ -428,7 +397,7 @@ class AutoAgentSystem:
                     self.dispatch(user_msg)
                 else:
                     self.dispatch(events.SendMessage(content=user_msg.content))
-                planned_content = self.prepare_task_prompt(user_msg.content)
+                planned_content = await self.prepare_task_prompt(user_msg.content)
                 async for stream in self.root_agent.full_round_stream(planned_content):
                     msg = await stream.message()
                     if msg.role == ChatRole.ASSISTANT:
@@ -478,7 +447,7 @@ class AutoAgentSystem:
                     break
     
                 self.dispatch(events.SendMessage(content=user_input))
-                planned_input = self.prepare_task_prompt(user_input, announce=True)
+                planned_input = await self.prepare_task_prompt(user_input, announce=True)
                 async for stream in self.root_agent.full_round_stream(planned_input):
                     print("AI:", end="", flush=True)
                     content = ""
@@ -542,7 +511,7 @@ class AutoAgentSystem:
         async def _task():
             try:
                 self.dispatch(events.SendMessage(content=query))
-                planned_query = self.prepare_task_prompt(query)
+                planned_query = await self.prepare_task_prompt(query)
                 async for _ in self.root_agent.full_round(planned_query):
                     pass
             finally:
