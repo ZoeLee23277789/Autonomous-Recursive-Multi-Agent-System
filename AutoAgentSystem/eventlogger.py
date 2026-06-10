@@ -115,7 +115,8 @@ class OtelEventLogger(EventLogger):
         self._round_index = 0
         self._spans: dict[str, Any] = {}
         self._span_depths: dict[str, int] = {}
-        self._token_usage = defaultdict(lambda: {"prompt": 0, "completion": 0})
+        self._token_usage = defaultdict(lambda: {"prompt": 0, "completion": 0, "requests": 0})
+        self._delegation_counts = defaultdict(int)
 
     async def log_event(self, event: events.BaseEvent):
         await super().log_event(event)
@@ -156,11 +157,24 @@ class OtelEventLogger(EventLogger):
                 self._round_active = True
             parent_span = self._ensure_agent_span(event.parent_id)
             child_span = self._ensure_agent_span(event.child_id, parent_id=event.parent_id)
+            instructions_preview = _preview(event.instructions)
             attrs = {
                 "agent.parent_id": event.parent_id,
                 "agent.child_id": event.child_id,
-                "delegation.instructions_preview": _preview(event.instructions),
+                "delegation.instructions_preview": instructions_preview,
+                "delegation.parent_message_idx": event.parent_message_idx,
+                "delegation.child_message_idx": event.child_message_idx,
             }
+            if parent_span:
+                self._delegation_counts[event.parent_id] += 1
+                parent_span.set_attribute("delegation.count", self._delegation_counts[event.parent_id])
+                parent_span.set_attribute("delegation.last_child_id", event.child_id)
+                parent_span.set_attribute("delegation.last_instructions_preview", instructions_preview)
+            if child_span:
+                child_span.set_attribute("delegation.parent_id", event.parent_id)
+                child_span.set_attribute("delegation.instructions_preview", instructions_preview)
+                child_span.set_attribute("delegation.parent_message_idx", event.parent_message_idx)
+                child_span.set_attribute("delegation.child_message_idx", event.child_message_idx)
             _add_event(parent_span, "agent_delegated", attrs)
             _add_event(child_span, "delegated", attrs)
             return
@@ -200,9 +214,14 @@ class OtelEventLogger(EventLogger):
                 usage = self._token_usage[event.id]
                 usage["prompt"] += event.prompt_tokens
                 usage["completion"] += event.completion_tokens
+                usage["requests"] += 1
                 span.set_attribute("llm.usage.prompt_tokens", usage["prompt"])
                 span.set_attribute("llm.usage.completion_tokens", usage["completion"])
                 span.set_attribute("llm.usage.total_tokens", usage["prompt"] + usage["completion"])
+                span.set_attribute("llm.usage.requests", usage["requests"])
+                span.set_attribute("llm.usage.last_prompt_tokens", event.prompt_tokens)
+                span.set_attribute("llm.usage.last_completion_tokens", event.completion_tokens)
+                span.set_attribute("llm.usage.last_total_tokens", event.prompt_tokens + event.completion_tokens)
                 _add_event(
                     span,
                     "tokens_used",
@@ -302,6 +321,7 @@ class OtelEventLogger(EventLogger):
         _force_flush_traces()
         self._spans.clear()
         self._token_usage.clear()
+        self._delegation_counts.clear()
         self._round_active = False
 
 
