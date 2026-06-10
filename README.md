@@ -105,7 +105,7 @@ Open Grafana at http://localhost:3000, choose **Explore**, select the **Tempo** 
 │   ├── agents.py             # Root/delegate agent prompts and creation
 │   ├── runtime.py            # Chat runtime and tool-call loop
 │   ├── eventlogger.py        # JSONL logging and OpenTelemetry tracing
-│   ├── mcts_planner.py       # Topology planning heuristic
+│   ├── task_planner.py       # LLM topology advisor
 │   ├── delegation/           # Delegate/wait tools
 │   └── tools/browsing/       # Optional web browsing tools
 ├── observability/            # Grafana/Tempo provisioning

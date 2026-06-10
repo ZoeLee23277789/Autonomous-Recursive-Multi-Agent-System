@@ -24,7 +24,7 @@ from base_agent import BaseAgent
 from delegation.delegate_and_wait import DelegateWait
 from delegation.delegate_one import DelegateOne
 from agents import DEFAULT_DELEGATE_PROMPT, DEFAULT_ROOT_PROMPT, create_root_agent
-from mcts_planner import MCTSPlan, MCTSTaskPlanner
+from task_planner import LLMTaskPlanner, TaskPlan
 from namer import Namer
 from tool_config import ToolConfigType, validate_tool_configs
 from utils import AUTOGENERATE_TITLE, AutogenerateTitle, generate_conversation_title
@@ -94,8 +94,8 @@ class AutoAgentSystem:
         # delegation/function calling
         delegation_scheme: type | None = DelegateWait,
         max_delegation_depth: int = 4,
-        mcts_planning: bool = True,
-        mcts_iterations: int = 64,
+        task_planning: bool = True,
+        planner_iterations: int = 64,
         tool_configs: ToolConfigType = None,
         root_has_tools: bool = False,
         # logging
@@ -163,10 +163,10 @@ class AutoAgentSystem:
         # delegation/function calling
         self.delegation_scheme = delegation_scheme
         self.max_delegation_depth = max_delegation_depth
-        self.mcts_planning = mcts_planning
-        self.mcts_iterations = mcts_iterations
-        self.mcts_planner = MCTSTaskPlanner(iterations=mcts_iterations)
-        self.last_mcts_plan: MCTSPlan | None = None
+        self.task_planning = task_planning
+        self.planner_iterations = planner_iterations
+        self.task_planner = LLMTaskPlanner(iterations=planner_iterations)
+        self.last_task_plan: TaskPlan | None = None
         self.tool_configs = tool_configs
         # 註冊工具
         default_tools = {}
@@ -224,8 +224,8 @@ class AutoAgentSystem:
             "delegate_agent_kwargs": self.delegate_agent_kwargs,
             "delegation_scheme": self.delegation_scheme,
             "max_delegation_depth": self.max_delegation_depth,
-            "mcts_planning": self.mcts_planning,
-            "mcts_iterations": self.mcts_iterations,
+            "task_planning": self.task_planning,
+            "planner_iterations": self.planner_iterations,
             "tool_configs": self.tool_configs,
             "root_has_tools": self.root_has_tools,
         }
@@ -311,8 +311,8 @@ class AutoAgentSystem:
         if peer.depth == reader.depth:
             self.add_agent_edge(reader.id, peer.id, "peer", label="peer", metadata={"source": "read_peer_notes"})
 
-    def activate_plan(self, plan: MCTSPlan | None):
-        self.last_mcts_plan = plan
+    def activate_plan(self, plan: TaskPlan | None):
+        self.last_task_plan = plan
         self.active_topology = plan.topology if plan else None
         self.peer_notes = []
         self.pipeline_roles = []
@@ -351,14 +351,14 @@ class AutoAgentSystem:
                     self.pipeline_stage_index += 1
 
     async def prepare_task_prompt(self, user_input: str, announce: bool = False) -> str:
-        if not self.mcts_planning:
+        if not self.task_planning:
             self.activate_plan(None)
             return user_input
 
-        plan = await self.mcts_planner.plan(user_input, engine=self.root_engine)
+        plan = await self.task_planner.plan(user_input, engine=self.root_engine)
         self.activate_plan(plan)
         if announce and plan.should_inject:
-            print(f"\n[🧭 MCTS 任務規劃] {plan.short_summary()}\n")
+            print(f"\n[🧭 LLM Task Planner] {plan.short_summary()}\n")
         return plan.to_prompt(user_input)
 
     async def ensure_init(self):

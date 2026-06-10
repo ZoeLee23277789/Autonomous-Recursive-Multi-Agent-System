@@ -7,8 +7,8 @@ from runtime import BaseEngine, ChatMessage
 
 TOPOLOGIES = ("direct", "flat_fanout", "network_peer", "hierarchical_tree", "pipeline", "review_debate")
 
-LLM_TOPOLOGY_PLANNER_PROMPT = """
-You are a topology advisor for an autonomous recursive multi-agent system.
+LLM_TASK_PLANNER_PROMPT = """
+You are a task planner for an autonomous recursive multi-agent system.
 
 Your only job is to recommend which topology best fits the user's task.
 Do not solve the task. Do not write the final answer. Do not propose concrete agent names or first-level roles.
@@ -41,7 +41,7 @@ Rules:
 
 
 @dataclass(frozen=True)
-class MCTSPlan:
+class TaskPlan:
     topology: str
     confidence: float
     rationale: str
@@ -63,7 +63,7 @@ class MCTSPlan:
         notes = "\n".join(f"- {note}" for note in self.execution_notes)
         return (
             f"{user_input}\n\n"
-            "[MCTS task-planning brief]\n"
+            "[LLM task-planning brief]\n"
             "Planner mode: LLM topology advisor. This brief is advisory, not a hard runtime controller.\n"
             f"Selected topology: {self.topology}\n"
             f"Selection confidence: {self.confidence:.2f}\n"
@@ -79,7 +79,7 @@ class MCTSPlan:
         return f"{self.topology} | source={self.source} | confidence={self.confidence:.2f}"
 
 
-class MCTSTaskPlanner:
+class LLMTaskPlanner:
     """
     LLM-only topology advisor.
 
@@ -89,11 +89,11 @@ class MCTSTaskPlanner:
     """
 
     def __init__(self, iterations: int = 64, exploration_weight: float = 1.25):
-        # Kept for backwards compatibility with existing AutoAgentSystem constructor arguments.
+        # Kept for compatibility with older constructor arguments. The LLM planner does not use them.
         self.iterations = iterations
         self.exploration_weight = exploration_weight
 
-    async def plan(self, task: str, engine: BaseEngine | None = None) -> MCTSPlan:
+    async def plan(self, task: str, engine: BaseEngine | None = None) -> TaskPlan:
         if engine is None:
             return fallback_plan()
 
@@ -102,9 +102,9 @@ class MCTSTaskPlanner:
         except Exception:
             return fallback_plan()
 
-    async def _llm_plan(self, task: str, engine: BaseEngine) -> MCTSPlan | None:
+    async def _llm_plan(self, task: str, engine: BaseEngine) -> TaskPlan | None:
         messages = [
-            ChatMessage.system(LLM_TOPOLOGY_PLANNER_PROMPT),
+            ChatMessage.system(LLM_TASK_PLANNER_PROMPT),
             ChatMessage.user(
                 "User task:\n"
                 f"{task}\n\n"
@@ -126,12 +126,12 @@ class MCTSTaskPlanner:
             return None
 
         confidence = _clamp_float(data.get("confidence"), 0.5)
-        rationale = str(data.get("rationale") or "The LLM advisor selected this topology for the task.").strip()
+        rationale = str(data.get("rationale") or "The LLM planner selected this topology for the task.").strip()
         notes = _clean_string_list(data.get("execution_notes") or data.get("notes"), limit=8)
         if not notes:
             notes = ["Use the selected topology as guidance, then adapt during execution if needed."]
 
-        return MCTSPlan(
+        return TaskPlan(
             topology=topology,
             confidence=confidence,
             rationale=rationale[:600],
@@ -140,11 +140,11 @@ class MCTSTaskPlanner:
         )
 
 
-def fallback_plan() -> MCTSPlan:
-    return MCTSPlan(
+def fallback_plan() -> TaskPlan:
+    return TaskPlan(
         topology="direct",
         confidence=0.05,
-        rationale="The LLM topology advisor was unavailable, so no topology recommendation was injected.",
+        rationale="The LLM task planner was unavailable, so no topology recommendation was injected.",
         execution_notes=("Root should decide whether delegation is needed from the original task.",),
         source="fallback",
     )

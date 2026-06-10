@@ -60,7 +60,7 @@ DEFAULT_ROOT_PROMPT = (
     "as context. Pipeline phase agents should complete their own phase directly instead of spawning subordinate agents.\n\n"
     "When you use delegation, briefly state the topology you selected and why, then delegate. After specialists return, "
     "synthesize the final answer and include a compact agent topology summary if it helps the user understand the work.\n\n"
-    "If the user message contains an [MCTS task-planning brief], treat it as an internal topology suggestion produced "
+    "If the user message contains an [LLM task-planning brief], treat it as an internal topology suggestion produced "
     "by the system. Use it as the starting point for delegation, but adapt the structure if the task or intermediate "
     "findings call for a better topology. Do not quote the brief verbatim; use it to guide delegation and synthesis.\n\n"
     "Never assume all tasks are about research. Some may require writing, generation, tool use, or creativity.\n"
