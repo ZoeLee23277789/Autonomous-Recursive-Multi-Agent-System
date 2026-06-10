@@ -168,8 +168,13 @@ coverage
 .auto_agent/
 .cache/auto_agent/
 .temp/
-agent_tree
-agent_tree*.png
+agent_tree*
+AutoAgentSystem/agent_tree*
+AutoAgentSystem/*_results.json
+AutoAgentSystem/*_results.csv
+AutoAgentSystem/*_debug.json
+AutoAgentSystem/agent_collaboration_table.*
+AutoAgentSystem/Test_Result/
 .DS_Store
 BLEURT-20/
 /experiments/webarena/**/webarena_trace.zip

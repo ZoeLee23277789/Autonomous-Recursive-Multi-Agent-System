@@ -1,7 +1,7 @@
 
 # Autonomous Recursive Multi-Agent System
 
-##  Project Overview
+## Project Overview
 
 This project implements an **Autonomous Recursive Multi-Agent System** capable of:
 
@@ -22,7 +22,7 @@ The system supports **recursive task delegation**, meaning that sub-agents can f
 
 ---
 
-# 🔧 Installation
+## Installation
 
 It is recommended to use a virtual environment.
 
@@ -31,7 +31,7 @@ conda create -n multiagent_env python=3.10
 conda activate multiagent_env
 
 pip install -r requirements.txt
-````
+```
 
 Create a `.env` file in the project root:
 
@@ -41,12 +41,12 @@ OPENAI_API_KEY=your_openai_api_key
 
 ---
 
-# 🚀 Running the System
+## Running the System
 
 Run the main interactive agent system:
 
 ```bash
-python __main__.py
+python AutoAgentSystem\__main__.py
 ```
 
 Example prompt:
@@ -66,9 +66,9 @@ The system will automatically:
 
 ---
 
-# 📈 OpenTelemetry Tracing
+## OpenTelemetry Tracing
 
-Install the optional observability dependencies:
+If you installed with `requirements.txt`, the observability dependencies are already included. Otherwise install them with:
 
 ```bash
 pip install -e ".[observability]"
@@ -96,38 +96,28 @@ Open Grafana at http://localhost:3000, choose **Explore**, select the **Tempo** 
 
 ---
 
-# 🧪 Running FEVER Benchmark
-
-To evaluate the system on the **FEVER fact verification dataset**, run:
-
-```bash
-python test_fever.py
-```
-
-This script will:
-
-* load FEVER claims
-* retrieve relevant Wikipedia evidence
-* use the multi-agent system to reason about the claim
-* output predictions for evaluation
-
----
-
-# 📂 Project Structure
+## Project Structure
 
 ```
-├── main.py                   # Program entry point
-├── commander_agent.py        # Main controller agent that manages tasks
-├── expert_factory.py         # Dynamically creates expert agents
-├── communication.py          # Handles communication between agents and humans
-├── memory.py                 # Stores intermediate notes and task results
-├── requirements.txt          # Python dependencies
-├── .env                      # Stores the OpenAI API key
+├── AutoAgentSystem/
+│   ├── __main__.py           # Terminal entry point
+│   ├── app.py                # Session orchestration, logging, visualization
+│   ├── agents.py             # Root/delegate agent prompts and creation
+│   ├── runtime.py            # Chat runtime and tool-call loop
+│   ├── eventlogger.py        # JSONL logging and OpenTelemetry tracing
+│   ├── mcts_planner.py       # Topology planning heuristic
+│   ├── delegation/           # Delegate/wait tools
+│   └── tools/browsing/       # Optional web browsing tools
+├── observability/            # Grafana/Tempo provisioning
+├── docker-compose.observability.yml
+├── pyproject.toml
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-# ✅ System Features
+## System Features
 
 | Feature                   | Description                                                   |
 | ------------------------- | ------------------------------------------------------------- |
@@ -139,7 +129,7 @@ This script will:
 
 ---
 
-# 📌 Potential Applications
+## Potential Applications
 
 * automated report generation
 * research assistance

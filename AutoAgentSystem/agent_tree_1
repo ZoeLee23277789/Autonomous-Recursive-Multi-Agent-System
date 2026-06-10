@@ -1,8 +1,0 @@
-// Recursive Agent Tree
-digraph {
-	root [label=root]
-	alpha [label=alpha]
-	root -> alpha
-	beta [label=beta]
-	root -> beta
-}

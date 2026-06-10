@@ -44,6 +44,17 @@ class AgentDelegated(BaseEvent):
     instructions: str
 
 
+class AgentEdge(BaseEvent):
+    """A typed relationship between two agents in the topology graph."""
+
+    type: Literal["agent_edge"] = "agent_edge"
+    source_id: str
+    target_id: str
+    edge_type: str
+    label: str | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
 class AgentStateChange(BaseEvent):
     """
     An agent's run state changed.

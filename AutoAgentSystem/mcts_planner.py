@@ -4,7 +4,7 @@ import random
 from dataclasses import dataclass
 
 
-TOPOLOGIES = ("direct", "flat_fanout", "hierarchical_tree", "pipeline", "review_debate")
+TOPOLOGIES = ("direct", "flat_fanout", "network_peer", "hierarchical_tree", "pipeline", "review_debate")
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,7 @@ class MCTSPlan:
             f"Selected topology: {self.topology}\n"
             f"Selection confidence: {self.confidence:.2f}\n"
             f"Why this topology fits: {self.rationale}\n"
+            "Root policy: Root is always the top-level coordinator; the selected topology describes the structure below Root.\n"
             "Recommended first-level delegation roles:\n"
             f"{roles}\n"
             "Execution constraints:\n"
@@ -131,6 +132,7 @@ class TaskFeatures:
     asks_implementation: bool
     asks_review: bool
     asks_comparison: bool
+    asks_network: bool
     asks_sequential: bool
     is_simple: bool
 
@@ -158,6 +160,11 @@ class TaskFeatures:
                 "requirement",
                 "資料流程",
                 "pipeline",
+                "network",
+                "peer",
+                "collaboration",
+                "協作",
+                "互相",
             ),
         )
         length = len(text)
@@ -171,6 +178,30 @@ class TaskFeatures:
             asks_implementation=has_any(normalized, ("實作", "implementation", "部署", "deploy", "程式", "code", "工程")),
             asks_review=has_any(normalized, ("審查", "review", "風險", "risk", "安全", "security", "critique")),
             asks_comparison=has_any(normalized, ("比較", "compare", "trade-off", "權衡", "優缺點")),
+            asks_network=has_any(
+                normalized,
+                (
+                    "network",
+                    "peer-to-peer",
+                    "peer to peer",
+                    "p2p",
+                    "網路",
+                    "網狀",
+                    "互相支援",
+                    "互相協助",
+                    "互相審查",
+                    "互相",
+                    "協作",
+                    "協同",
+                    "去中心",
+                    "無中央",
+                    "沒有中央",
+                    "跨角色",
+                    "cross-functional",
+                    "collaboration",
+                    "collaborative",
+                ),
+            ),
             asks_sequential=has_any(normalized, ("流程", "pipeline", "步驟", "階段", "phase", "先", "再")),
             is_simple=length < 80 and aspect_words <= 1 and separators <= 1,
         )
@@ -181,6 +212,17 @@ def topology_fit_score(topology: str, features: TaskFeatures) -> float:
         return 0.82 if features.is_simple else 0.25
     if topology == "flat_fanout":
         return 0.35 + min(0.32, features.aspect_count * 0.055)
+    if topology == "network_peer":
+        score = 0.25
+        if features.asks_network:
+            score += 0.38
+        if features.asks_comparison or features.asks_review:
+            score += 0.08
+        if 3 <= features.aspect_count <= 8:
+            score += 0.12
+        if features.asks_sequential:
+            score -= 0.08
+        return score
     if topology == "hierarchical_tree":
         score = 0.35
         if features.asks_architecture:
@@ -191,13 +233,19 @@ def topology_fit_score(topology: str, features: TaskFeatures) -> float:
             score += 0.1
         if features.aspect_count >= 4:
             score += 0.14
+        if features.asks_sequential:
+            score -= 0.08
         return score
     if topology == "pipeline":
         score = 0.32
         if features.asks_sequential:
-            score += 0.2
+            score += 0.32
         if features.asks_research:
             score += 0.12
+        if features.asks_architecture:
+            score += 0.06
+        if features.asks_strategy:
+            score += 0.05
         if features.asks_implementation:
             score += 0.1
         return score
@@ -220,6 +268,7 @@ def topology_cost_penalty(topology: str, features: TaskFeatures) -> float:
         return 0.22
     return {
         "flat_fanout": 0.08,
+        "network_peer": 0.11,
         "hierarchical_tree": 0.13,
         "pipeline": 0.1,
         "review_debate": 0.12,
@@ -231,18 +280,26 @@ def topology_divergence_penalty(topology: str, features: TaskFeatures) -> float:
         return 0.12
     if topology == "flat_fanout" and features.aspect_count >= 7:
         return 0.1
+    if topology == "network_peer" and not features.asks_network:
+        return 0.11
+    if topology == "network_peer" and features.asks_sequential:
+        return 0.08
     if topology == "review_debate" and not (features.asks_review or features.asks_comparison):
         return 0.09
     return 0.0
 
 
 def topology_coverage_bonus(topology: str, features: TaskFeatures) -> float:
-    if topology == "hierarchical_tree" and features.asks_architecture and features.asks_strategy:
+    if topology == "hierarchical_tree" and features.asks_architecture and features.asks_strategy and not features.asks_sequential:
         return 0.1
+    if topology == "pipeline" and features.asks_sequential:
+        return 0.16
     if topology == "pipeline" and features.asks_research and features.asks_implementation:
         return 0.08
     if topology == "flat_fanout" and 3 <= features.aspect_count <= 5:
         return 0.08
+    if topology == "network_peer" and features.asks_network:
+        return 0.12
     if topology == "review_debate" and features.asks_review and features.asks_comparison:
         return 0.08
     return 0.0
@@ -253,6 +310,11 @@ def topology_rationale(topology: str, features: TaskFeatures) -> str:
         return "The task appears narrow enough for a single expert answer."
     if topology == "flat_fanout":
         return "The task has independent dimensions that can be analyzed in parallel and synthesized."
+    if topology == "network_peer":
+        return (
+            "The task benefits from peer-to-peer collaboration below Root: first-level agents should stay at the same "
+            "level, consult or review each other, and form cross-links instead of a strict manager/subordinate tree."
+        )
     if topology == "hierarchical_tree":
         return (
             "The task is broad and multi-domain, so manager agents should own major workstreams and delegate "
@@ -270,6 +332,13 @@ def roles_for_topology(topology: str, features: TaskFeatures) -> tuple[str, ...]
         roles = ["Architecture Analyst", "Risk and Evaluation Analyst", "Improvement Strategy Analyst"]
         if features.asks_implementation:
             roles.append("Implementation Analyst")
+        return tuple(roles[:4])
+    if topology == "network_peer":
+        roles = ["Architecture Peer", "Implementation Peer", "Risk Review Peer"]
+        if features.asks_strategy:
+            roles.append("Improvement Strategy Peer")
+        elif features.asks_comparison:
+            roles.append("Trade-off Peer")
         return tuple(roles[:4])
     if topology == "hierarchical_tree":
         roles = ["System Architecture Lead", "Implementation and Operations Lead", "Evaluation and Risk Lead"]
@@ -293,15 +362,30 @@ def execution_notes_for_topology(topology: str, features: TaskFeatures) -> tuple
             "Team leads may further delegate only if their workstream contains distinct specialist subtasks.",
             "Final answer should include a compact tree summary and concrete recommendations.",
         )
+    if topology == "network_peer":
+        return (
+            *common,
+            "Root should create the recommended peers as first-level agents with stable role names.",
+            "Do not create manager/lead subtrees unless a peer finds a clearly separate specialist subtask.",
+            "Peers should use `link_peer` to record explicit same-layer collaboration relationships.",
+            "Peers should use `publish_peer_note` and `read_peer_notes` to exchange same-level context.",
+            "Peers may use `list_peers` and `consult_peer` to consult an existing peer role with the same `who` value; this creates peer support edges.",
+            "Final synthesis should mention the peer-to-peer collaboration paths that influenced the answer.",
+        )
     if topology == "pipeline":
         return (
             *common,
-            "Run phases in order; do not start critique until design assumptions are available.",
+            "Root must delegate exactly one phase at a time in the recommended role order.",
+            "After each phase, Root must wait for the result before starting the next phase.",
+            "Each phase should receive the previous phase output as context.",
+            "Pipeline phase agents should complete their assigned phase directly and should not create subordinate agents.",
         )
     if topology == "review_debate":
         return (
             *common,
             "Ask review agents to disagree constructively and surface failure modes.",
+            "Use `link_peer` between debate/review agents when they directly challenge or depend on each other's claims.",
+            "Ask debate/review peers to publish their key claims as peer notes and read opposing notes before final judgment.",
         )
     if topology == "flat_fanout":
         return (

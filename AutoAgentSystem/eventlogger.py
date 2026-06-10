@@ -81,6 +81,7 @@ class EventLogger:
             "last_modified": self.last_modified,
             "n_events": self.event_count.total(),
             "state": state,
+            "agent_edges": getattr(self.app, "agent_edges", []),
         }
         with open(self.state_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -162,6 +163,25 @@ class OtelEventLogger(EventLogger):
             }
             _add_event(parent_span, "agent_delegated", attrs)
             _add_event(child_span, "delegated", attrs)
+            return
+
+        if isinstance(event, events.AgentEdge):
+            if not self._round_active:
+                self._round_active = True
+            source_span = self._ensure_agent_span(event.source_id)
+            target_span = self._ensure_agent_span(event.target_id)
+            attrs = {
+                "agent.edge.type": event.edge_type,
+                "agent.edge.source_id": event.source_id,
+                "agent.edge.target_id": event.target_id,
+            }
+            if event.label:
+                attrs["agent.edge.label"] = event.label
+            for key, value in event.metadata.items():
+                if isinstance(value, (str, int, float, bool)):
+                    attrs[f"agent.edge.metadata.{key}"] = value
+            _add_event(source_span, "agent_edge_out", attrs)
+            _add_event(target_span, "agent_edge_in", attrs)
             return
 
         if isinstance(event, events.AgentStateChange):

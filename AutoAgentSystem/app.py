@@ -108,6 +108,14 @@ class AutoAgentSystem:
         self.global_task_log = []  # 🧠 全局任務追蹤記憶體
         self.namer = Namer()
         self.reusable_agents = {}
+        self.agent_edges = []
+        self._agent_edge_keys = set()
+        self.peer_notes = []
+        self.active_topology = None
+        self.pipeline_roles = []
+        self.pipeline_stage_index = 0
+        self.pipeline_running_role = None
+        self.pipeline_last_agent_id = None
         """
         :param root_engine: The engine to use for the root agent. Requires function calling. (default: gpt-4o)
         :param delegate_engine: The engine to use for each delegate agent. Requires function calling. (default: gpt-4o)
@@ -235,15 +243,151 @@ class AutoAgentSystem:
 
     def on_agent_reuse(self, parent: BaseAgent, child: BaseAgent):
         parent.children[child.id] = child
-        self.visualizer.add_edge(parent.id, child.id)
+        self.add_agent_edge(parent.id, child.id, "reuse")
+
+    def add_agent_edge(
+        self,
+        source_id: str,
+        target_id: str,
+        edge_type: str,
+        *,
+        label: str | None = None,
+        metadata: dict | None = None,
+    ):
+        if not source_id or not target_id or source_id == target_id:
+            return None
+
+        label = label if label is not None else (None if edge_type == "delegation" else edge_type)
+        metadata = metadata or {}
+        edge_key = (source_id, target_id, edge_type, label)
+        if edge_key in self._agent_edge_keys:
+            return None
+
+        edge = {
+            "source_id": source_id,
+            "target_id": target_id,
+            "edge_type": edge_type,
+            "label": label,
+            "metadata": metadata,
+        }
+        self._agent_edge_keys.add(edge_key)
+        self.agent_edges.append(edge)
+        self.visualizer.add_edge(source_id, target_id, edge_type=edge_type, label=label)
+        self.dispatch(events.AgentEdge(**edge))
+        return edge
+
+    def add_peer_note(self, agent: BaseAgent, topic: str, content: str):
+        note = {
+            "agent_id": agent.id,
+            "agent": agent.name,
+            "role": getattr(agent, "role_name", None),
+            "depth": agent.depth,
+            "topic": topic,
+            "content": content,
+        }
+        self.peer_notes.append(note)
+        return note
+
+    def get_peer_notes(self, *, depth: int | None = None, exclude_agent_id: str | None = None, topic: str | None = None):
+        notes = self.peer_notes
+        if depth is not None:
+            notes = [note for note in notes if note["depth"] == depth]
+        if exclude_agent_id:
+            notes = [note for note in notes if note["agent_id"] != exclude_agent_id]
+        if topic:
+            topic_key = topic.strip().lower()
+            notes = [
+                note for note in notes
+                if topic_key in note["topic"].lower() or topic_key in note["content"].lower()
+            ]
+        return notes
+
+    def on_peer_note_read(self, reader: BaseAgent, note: dict):
+        if note.get("agent_id") == reader.id:
+            return
+        peer = self.agents.get(note.get("agent_id"))
+        if peer is None:
+            return
+        if peer.depth == reader.depth:
+            self.add_agent_edge(reader.id, peer.id, "peer", label="peer", metadata={"source": "read_peer_notes"})
+
+    def activate_plan(self, plan: MCTSPlan | None):
+        self.last_mcts_plan = plan
+        self.active_topology = plan.topology if plan else None
+        self.peer_notes = []
+        self.pipeline_roles = list(plan.first_level_roles) if plan and plan.topology == "pipeline" else []
+        self.pipeline_stage_index = 0
+        self.pipeline_running_role = None
+        self.pipeline_last_agent_id = None
+
+    def _normalize_role_key(self, role_name: str | None):
+        if not role_name:
+            return None
+        return " ".join(role_name.strip().lower().split())
+
+    def validate_pipeline_delegate(self, parent: BaseAgent, role_name: str | None):
+        if self.active_topology in ("network_peer", "review_debate", "flat_fanout") and parent is not self.root_agent:
+            return (
+                f"{self.active_topology} mode is active. First-level agents should collaborate with peers using "
+                "link_peer, publish_peer_note, read_peer_notes, or consult_peer instead of creating subordinate agents."
+            )
+
+        if self.active_topology != "pipeline":
+            return None
+
+        if parent is not self.root_agent:
+            return (
+                "Pipeline mode is active. Phase agents should complete their assigned phase directly, publish/read "
+                "peer notes if context is needed, and avoid creating subordinate agents unless Root changes the plan."
+            )
+
+        if not self.pipeline_roles:
+            return None
+
+        if self.pipeline_running_role:
+            return (
+                f"Pipeline phase {self.pipeline_running_role!r} is still running. "
+                "Use wait(until='all') before starting the next pipeline phase."
+            )
+
+        if self.pipeline_stage_index >= len(self.pipeline_roles):
+            return None
+
+        expected = self.pipeline_roles[self.pipeline_stage_index]
+        if self._normalize_role_key(role_name) != self._normalize_role_key(expected):
+            return (
+                f"Pipeline order requires the next stage to be {expected!r}. "
+                "Delegate only that stage now, wait for it, then continue to the following stage."
+            )
+        return None
+
+    def mark_pipeline_role_started(self, helper: BaseAgent):
+        if self.active_topology != "pipeline" or helper.parent is not self.root_agent:
+            return
+        role = getattr(helper, "role_name", None) or helper.name
+        self.pipeline_running_role = role
+        if self.pipeline_last_agent_id and self.pipeline_last_agent_id != helper.id:
+            self.add_agent_edge(self.pipeline_last_agent_id, helper.id, "handoff", label="handoff")
+
+    def mark_pipeline_role_completed(self, helper: BaseAgent):
+        if self.active_topology != "pipeline" or helper.parent is not self.root_agent:
+            return
+        role = getattr(helper, "role_name", None) or helper.name
+        if self._normalize_role_key(role) == self._normalize_role_key(self.pipeline_running_role):
+            self.pipeline_running_role = None
+            self.pipeline_last_agent_id = helper.id
+            if self.pipeline_stage_index < len(self.pipeline_roles):
+                expected = self.pipeline_roles[self.pipeline_stage_index]
+                if self._normalize_role_key(role) == self._normalize_role_key(expected):
+                    self.pipeline_stage_index += 1
 
     def prepare_task_prompt(self, user_input: str, announce: bool = False) -> str:
         if not self.mcts_planning:
-            self.last_mcts_plan = None
+            self.activate_plan(None)
             return user_input
 
         plan = self.mcts_planner.plan(user_input)
-        self.last_mcts_plan = plan
+        self.activate_plan(plan)
         if announce and plan.should_inject:
             print(f"\n[🧭 MCTS 任務規劃] {plan.short_summary()}\n")
         return plan.to_prompt(user_input)
@@ -468,10 +612,10 @@ class AutoAgentSystem:
     def on_agent_creation(self, ai: BaseAgent):
         """Register a new agent, handle parent-child bookkeeping, and dispatch an AgentSpawn event."""
         self.agents[ai.id] = ai
-        self.visualizer.add_node(ai.id, label=self.agent_visual_label(ai))
+        self.visualizer.add_node(ai.id, label=self.agent_visual_label(ai), depth=ai.depth)
         if ai.parent:
             ai.parent.children[ai.id] = ai
-            self.visualizer.add_edge(ai.parent.id, ai.id)
+            self.add_agent_edge(ai.parent.id, ai.id, "delegation")
         self.dispatch(events.AgentSpawn.from_agent(ai))
 
     def agent_visual_label(self, ai: BaseAgent) -> str:
@@ -522,20 +666,40 @@ class AutoAgentSystem:
         
 class TreeVisualizer:
     def __init__(self):
-        self.graph = Digraph(comment="Recursive Agent Tree")
+        self.graph = self._new_graph()
+        self.nodes = {}
+        self.edge_records = []
         self.edges = set()
         self.warned_missing_graphviz = False
 
-    def add_node(self, name: str, label: str = None):
+    def _new_graph(self):
+        return Digraph(comment="Recursive Agent Tree")
+
+    def add_node(self, name: str, label: str = None, depth: int | None = None):
         if label is None:
             label = name
+        self.nodes[name] = {"label": label, "depth": depth}
         self.graph.node(name, label=label)
 
-    def add_edge(self, parent: str, child: str):
-        edge = (parent, child)
+    def add_edge(self, parent: str, child: str, edge_type: str = "delegation", **attrs):
+        attrs = {key: value for key, value in attrs.items() if value is not None}
+        if edge_type == "peer":
+            attrs.setdefault("label", "peer")
+            attrs.setdefault("style", "dashed")
+            attrs.setdefault("dir", "both")
+        elif edge_type in ("reuse", "handoff", "review"):
+            attrs.setdefault("label", edge_type)
+            attrs.setdefault("style", "dashed")
+        edge = (parent, child, edge_type, attrs.get("label"))
         if edge not in self.edges:
-            self.graph.edge(parent, child)
+            self.graph.edge(parent, child, **attrs)
             self.edges.add(edge)
+            self.edge_records.append({
+                "source": parent,
+                "target": child,
+                "edge_type": edge_type,
+                "attrs": attrs,
+            })
 
     def render(self, output_path="agent_tree", view=True):
         if GRAPHVIZ_IMPORT_ERROR:

@@ -103,8 +103,9 @@ class DelegateWait(DelegationBase):
     @ai_function(
         desc=(
             "Delegate a bounded role-specific subtask to another agent. Use this to build the topology you selected: "
-            "flat fan-out, hierarchical team leads, pipeline phases, or review/debate agents. Reuse the same stable "
-            "who value for the same specialist role instead of creating a new agent of the same type. Returns immediately."
+            "flat fan-out, network peer collaboration, hierarchical team leads, pipeline phases, or review/debate "
+            "agents. Reuse the same stable who value for the same specialist role instead of creating a new agent of "
+            "the same type. Returns immediately."
         )
     )
     async def delegate(
@@ -120,7 +121,8 @@ class DelegateWait(DelegationBase):
             str,
             AIParam(
                 "Stable specialist role or existing helper name, such as 'System Architecture Lead'. Reuse the same "
-                "value when a later subtask belongs to the same role/type."
+                "value when a later subtask belongs to the same role/type. In network_peer mode, use the target peer "
+                "role here to consult or route work to that existing peer."
             ),
         ] = None,
     ):
@@ -129,6 +131,10 @@ class DelegateWait(DelegationBase):
         helper_name = self.resolve_helper_name(who)
         role_name = self.infer_role_name(who, instructions)
         reuse_key = self.reuse_key_for(role_name)
+        pipeline_error = self.app.validate_pipeline_delegate(self.agent, role_name)
+        if pipeline_error:
+            return pipeline_error
+
         cached_result = self.find_completed_result(instructions, helper_name)
         if cached_result:
             cached_helper, cached_text = cached_result
@@ -177,7 +183,11 @@ class DelegateWait(DelegationBase):
 
             if helper is not None:
                 if getattr(helper, "state", RunState.STOPPED) != RunState.STOPPED:
-                    return f"{helper.name!r} is already handling {role_name or 'a similar role'}. Wait before reusing it."
+                    return (
+                        f"{helper.name!r} is already handling {role_name or 'a similar role'}. "
+                        "For peer collaboration while it is busy, publish a peer note or read existing peer notes; "
+                        "wait before directly consulting that peer again."
+                    )
                 self.helpers[helper.name] = helper
                 self.remember_alias(who or role_name, helper.name)
                 self.remember_alias(role_name, helper.name)
@@ -211,8 +221,147 @@ class DelegateWait(DelegationBase):
                 "task": instructions,
                 "status": "assigned"
             })
+            self.app.mark_pipeline_role_started(helper)
 
         return await self._task_with_helper(helper, instructions)
+
+    @ai_function(
+        desc=(
+            "Consult or reuse an existing peer agent by stable role name. Use this in network_peer topology when one "
+            "same-level agent needs review, context, or support from another peer. If the peer already exists, this "
+            "creates a peer support edge instead of a new same-type agent."
+        )
+    )
+    async def consult_peer(
+        self,
+        who: Annotated[
+            str,
+            AIParam("Stable role name of the peer to consult, such as 'Risk Review Peer' or 'Implementation Peer'."),
+        ],
+        instructions: Annotated[
+            str,
+            AIParam(
+                "Specific request for the peer. Include the context to review, the support needed, and the expected "
+                "short response."
+            ),
+        ],
+    ):
+        return await self.delegate(instructions=instructions, who=who)
+
+    @ai_function(
+        desc=(
+            "Create an explicit same-level collaboration edge to an existing peer without starting a new task. "
+            "Use this when agents should coordinate, review, challenge, or share context as peers."
+        )
+    )
+    async def link_peer(
+        self,
+        who: Annotated[
+            str,
+            AIParam("Stable role name or helper name of the existing same-level peer to link with."),
+        ],
+        purpose: Annotated[
+            str,
+            AIParam("Why this peer relationship is needed, e.g. 'review assumptions' or 'coordinate data handoff'."),
+        ],
+    ):
+        helper_name = self.resolve_helper_name(who)
+        peer = self.helpers.get(helper_name) if helper_name else None
+        if peer is None:
+            peer = self.app.get_reusable_agent(self.reuse_key_for(who))
+        if peer is None:
+            return f"No existing peer named {who!r}. Use list_peers first, or ask Root to create that peer."
+        if peer is self.agent:
+            return "Cannot create a peer link to yourself."
+        if getattr(peer, "depth", None) != getattr(self.agent, "depth", None):
+            return (
+                f"{who!r} exists, but it is not on the same layer "
+                f"(self depth={getattr(self.agent, 'depth', '?')}, peer depth={getattr(peer, 'depth', '?')})."
+            )
+
+        self.app.add_agent_edge(
+            self.agent.id,
+            peer.id,
+            "peer",
+            label="peer",
+            metadata={"purpose": purpose, "tool": "link_peer"},
+        )
+        self.app.add_peer_note(
+            self.agent,
+            topic=f"peer link to {getattr(peer, 'role_name', None) or peer.name}",
+            content=purpose,
+        )
+        role = getattr(peer, "role_name", None) or peer.name
+        return f"Linked {self.agent.name} with peer {role}: {purpose}"
+
+    @ai_function(
+        desc=(
+            "List reusable peer/helper agents that already exist in this session. Use this in network_peer topology "
+            "before consulting another same-level peer."
+        )
+    )
+    async def list_peers(self):
+        peers = []
+        reusable_agents = getattr(self.app, "reusable_agents", {})
+        for reuse_key, peer in sorted(reusable_agents.items()):
+            role = getattr(peer, "role_name", None) or reuse_key
+            state = getattr(getattr(peer, "state", None), "value", getattr(peer, "state", "unknown"))
+            relation = "self" if peer is self.agent else "available"
+            peers.append(
+                f"- {role} ({peer.name}, depth={getattr(peer, 'depth', '?')}, state={state}, relation={relation})"
+            )
+        if not peers:
+            return "No reusable peers have been created yet."
+        return "\n".join(peers)
+
+    @ai_function(
+        desc=(
+            "Publish a short note to the shared peer workspace. Use this when same-level agents should share findings, "
+            "assumptions, risks, or questions without waiting for direct synchronous consultation."
+        )
+    )
+    async def publish_peer_note(
+        self,
+        topic: Annotated[str, AIParam("Short topic label for this note.")],
+        content: Annotated[str, AIParam("Concise finding, assumption, risk, question, or request to share with peers.")],
+    ):
+        note = self.app.add_peer_note(self.agent, topic=topic, content=content)
+        role = note.get("role") or note["agent"]
+        return f"Published peer note from {role} on {topic!r}."
+
+    @ai_function(
+        desc=(
+            "Read notes from the shared peer workspace. Use this before finalizing a peer result or when you need "
+            "same-level context from other agents."
+        ),
+        auto_truncate=3000,
+    )
+    async def read_peer_notes(
+        self,
+        topic: Annotated[
+            str,
+            AIParam("Optional topic filter. Leave empty to read same-level peer notes."),
+        ] = "",
+    ):
+        depth = getattr(self.agent, "depth", None)
+        note_depth = depth if depth and depth > 0 else None
+        notes = self.app.get_peer_notes(
+            depth=note_depth,
+            exclude_agent_id=self.agent.id,
+            topic=topic or None,
+        )
+        if not notes:
+            return "No peer notes are available yet."
+
+        lines = []
+        for note in notes:
+            self.app.on_peer_note_read(self.agent, note)
+            role = note.get("role") or note["agent"]
+            content = note["content"]
+            if len(content) > 600:
+                content = content[:600] + "..."
+            lines.append(f"- {role} [{note['topic']}]: {content}")
+        return "\n".join(lines)
 
     async def _task_with_helper(self, helper, instructions):
         async def internal():
@@ -245,6 +394,7 @@ class DelegateWait(DelegationBase):
 
                 self.completed_results[helper.name] = output
                 self.completed_task_results[self.normalize_task(instructions)] = (helper.name, output)
+                self.app.mark_pipeline_role_completed(helper)
                 await helper.cleanup()
                 return output, helper.name
             except Exception as e:
